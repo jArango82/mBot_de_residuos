@@ -1,0 +1,8 @@
+bleak==3.0.2
+opencv-python==5.0.0.93
+ultralytics==8.4.165
+pyobjc-framework-AVFoundation==12.2.2; sys_platform == "darwin"
+clip @ git+https://github.com/openai/CLIP.git@d05afc436d78f1c48dc0dbf8e5980a9d471f35f6
+transformers==4.57.6
+safetensors==0.8.0
+opencv-contrib-python==5.0.0.93

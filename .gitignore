@@ -1,0 +1,11 @@
+# Entorno, pruebas locales y capturas de cámara
+/work/
+/weights/
+.DS_Store
+__pycache__/
+*.py[cod]
+# Modelos descargables: conservarlos localmente
+/outputs/models/**/*.pt
+/outputs/models/**/*.safetensors
+/outputs/models/**/*.bin
+/outputs/models/**/*.partial
