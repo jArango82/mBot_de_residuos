@@ -29,6 +29,8 @@ class CounterTests(unittest.TestCase):
     def total(self):return self.store.report()['total']
     def inside(self):self.feed(250,0);self.feed(250,.5)
     def exit(self):self.feed(280,1);self.feed(310,1.5);self.feed(310,2)
+    def test_empty_history_has_zero_elapsed_time(self):
+        self.assertEqual(self.store.report("nonexistent")["elapsed"],0)
     def test_confirmed_exit_once(self):
         self.inside();self.exit();self.feed(315,2.5);self.assertEqual(self.total(),1)
     def test_already_outside_not_counted(self):

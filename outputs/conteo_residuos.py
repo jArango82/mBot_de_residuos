@@ -60,7 +60,7 @@ class EventStore:
         # La tasa termina en la última actualización de esa sesión, no sigue creciendo al cerrar.
         state = json.loads(live[0]) if live else {}
         end = state.get('updated',time.time()) if state.get('session')==selected else (events[-1]['at'] if events else start)
-        elapsed = max(0,(end or 0)-(start or 0))
+        elapsed = max(0,(end or 0)-start) if start is not None else 0
         return dict(sessions=sessions,selected=selected,active=active,total=len(events),historical_total=total,
                     categories=categories,events=events,elapsed=elapsed,
                     per_minute=len(events)/max(elapsed/60,1),live=state)
