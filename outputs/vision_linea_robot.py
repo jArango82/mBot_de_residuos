@@ -11,6 +11,7 @@ from vision_ranger import Camera, CommandState, BluetoothGuard, WasteDetector
 from ranger_bluetooth import NOMBRE
 from vision_boundary import AutoBoundary, tape_image
 from vision_papel import PaperDetector
+from vision_residuos import merge_observations
 from conteo_residuos import EventStore, SeparationCounter
 from dashboard import serve
 
@@ -206,7 +207,7 @@ def main():
                 observations=[(b,n,c,a+now-waste_stamp) for b,n,c,a in waste_boxes
                               if not n.startswith('papel')]
             if now-stamp < .3:
-                observations.extend((b,n,c,a+now-stamp) for b,n,c,a in paper.read(frame,stamp))
+                observations=merge_observations(observations,[(b,n,c,a+now-stamp) for b,n,c,a in paper.read(frame,stamp)])
             objects = []
             if now-stamp < .3:
                 for coordinates,name,confidence,observation_age in observations:

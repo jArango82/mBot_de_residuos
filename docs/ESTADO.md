@@ -1,6 +1,10 @@
 # Estado real del proyecto
 
-Fecha de esta documentación: **19 de octubre de 2026**. [Inicio](../README.md)
+Fecha de esta documentación: **20 de octubre de 2026**. [Inicio](../README.md)
+
+## Ajuste del 20 de octubre
+
+Se añadió reconocimiento específico de envolturas pequeñas con giros adaptativos y verificación CLIP. La envoltura del montaje fue detectada en vivo con la cámara inclinada y en seis variantes de una captura (cuatro giros y dos perspectivas simuladas). Se añadieron pruebas de transformación de coordenadas, caducidad y no duplicación. No se garantiza reconocimiento de todos los objetos o vistas.
 
 ## Cambios de esta entrega
 

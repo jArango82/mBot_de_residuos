@@ -8,7 +8,7 @@ Prototipo educativo para observar una zona con una webcam, detectar posibles res
 
 - Detección automática del recuadro de cinta negra, con reinicio de selección.
 - Detección de posibles botellas, latas, vasos, cartón, bolsas, envolturas, papel y otros objetos. Puede equivocarse u omitir residuos.
-- Un detector adicional de papel con verificación para reducir falsos positivos.
+- Un detector adicional de papel y envolturas pequeñas, con búsqueda en distintas orientaciones y verificación visual para reducir falsos positivos.
 - Seguimiento del Ranger sin etiqueta impresa: se selecciona una vez con el ratón.
 - Control manual por Bluetooth con `w`, `a`, `s`, `d`, parada, luces y buzzer.
 - Aviso sonoro al salir del borde, sin bloquear el manejo por proximidad o cruce. Se mantiene parada silenciosa por pérdida de visión y los LED apagados.

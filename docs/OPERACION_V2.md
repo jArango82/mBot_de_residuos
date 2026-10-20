@@ -70,7 +70,7 @@ Se sigue la trayectoria de cada objeto por posición y categoría. Debe observar
 
 No suma si aparece ya afuera, desaparece, se pierde el borde, cambia la zona o se pierde demasiado tiempo su identidad. Repetir en pantalla el mismo resultado del detector no lo convierte en varios reconocimientos. Los casos de dos objetos cercanos con asociación ambigua se descartan para no inventar una trayectoria.
 
-Cada trayectoria cuenta una sola vez por sesión, incluso si vuelve a entrar mientras siga identificada. No es reconocimiento permanente del objeto: tras una pérdida prolongada o entre sesiones puede recibir otro identificador. Objetos que se ocultan debajo del robot, cambios de categoría, residuos juntos y detecciones erróneas pueden provocar omisiones o conteos incorrectos. La configuración retiene trayectorias seis segundos, pero no valida salidas tras huecos de observación superiores a 2.5 s (4 s para papel).
+Cada trayectoria cuenta una sola vez por sesión, incluso si vuelve a entrar mientras siga identificada. No es reconocimiento permanente del objeto: tras una pérdida prolongada o entre sesiones puede recibir otro identificador. Objetos que se ocultan debajo del robot, cambios de categoría, residuos juntos y detecciones erróneas pueden provocar omisiones o conteos incorrectos. La configuración retiene trayectorias seis segundos, pero no valida salidas tras huecos de observación superiores a 2.5 s (4 s para papel y envolturas).
 
 Se cuenta la salida visual, tanto si el residuo lo empuja el robot como si se retira a mano. No se demuestra automáticamente quién lo movió, ni se ha añadido navegación o recogida autónoma.
 

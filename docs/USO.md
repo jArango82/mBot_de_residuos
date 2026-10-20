@@ -21,6 +21,14 @@ La puntuación no es una certeza de que sea basura. Una botella utilizable tambi
 
 Los residuos se detectan incluso sin recuadro. Con borde confirmado, el diagnóstico distingue centros dentro/fuera; los objetos exteriores no se ocultan en este modo. Ninguna de estas detecciones ordena al robot acercarse.
 
+### Envolturas pequeñas y cámara inclinada
+
+Desde el 20 de octubre, el detector adicional también busca envolturas de dulces y comida. Analiza con mayor resolución, prueba giros de 90 grados si no encuentra la envoltura y conserva la orientación que funciona. Después compara el recorte en cuatro giros con papel, botellas, piso, cinta, muebles y otros objetos. Solo acepta candidatos que favorezcan la clase envoltura y se repitan en observaciones independientes.
+
+El seguimiento visual puede mantener la etiqueta hasta seis segundos entre reconocimientos; el papel conserva su límite de cuatro segundos. La posición se sigue con la imagen actual, pero la puntuación pertenece al último reconocimiento. Las cajas coincidentes de los dos modelos se unifican para evitar duplicados. El conteo exige nuevos reconocimientos y mantiene su regla dentro → completamente fuera.
+
+No necesita poner la cámara cenital para reconocer esta envoltura. Se verificó en vivo con la webcam inclinada del montaje, ocho muestras consecutivas con detección, y una captura girada en cuatro orientaciones más dos deformaciones de perspectiva simuladas. Esas transformaciones no equivalen a probar todas las vistas físicas posibles. Una envoltura tapada, muy pequeña o de otra apariencia todavía puede omitirse. El primer reconocimiento puede tardar varios segundos mientras explora orientaciones.
+
 ## 2. Probar la cinta negra
 
 ```sh

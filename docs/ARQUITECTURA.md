@@ -36,7 +36,7 @@ Los `.command` son accesos de macOS, no ejecutables de Windows/Linux.
 - `vision_core.py`: detección geométrica de líneas/recuadros, ArUco y cálculos de protección.
 - `vision_boundary.py`: estabilización, confirmación y seguimiento de evidencia del borde; ajuste de imagen oscura.
 - `vision_residuos.py`: agrupación de etiquetas y persistencia temporal de cajas. Las detecciones normales toleran interrupciones de hasta 0.7 s.
-- `vision_papel.py`: Grounding DINO Tiny, verificación CLIP y seguimiento de papel entre análisis. Descarta candidatos de más del 20 % de la imagen; requiere dos observaciones verificadas. El seguimiento caduca tras cuatro segundos sin reconocimiento nuevo.
+- `vision_papel.py`: Grounding DINO Tiny y CLIP para papel y envolturas. Busca con mayor resolución y giros adaptativos, transforma las cajas a la imagen original y verifica envolturas con recortes en cuatro giros. Descarta candidatos de más del 20 % de la imagen; exige observaciones repetidas. El seguimiento caduca a los cuatro segundos para papel y seis para envolturas. La clase `PaperDetector` conserva su nombre por compatibilidad.
 
 ## Modelos y configuración
 

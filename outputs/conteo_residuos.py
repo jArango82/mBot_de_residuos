@@ -96,8 +96,8 @@ class SeparationCounter:
         used=set();emitted=[]
         # Solo muestras nuevas del detector; el mismo resultado mostrado 30 veces no confirma nada.
         for obj in sorted(objects,key=lambda o:o['confidence'],reverse=True):
-            paper = obj['label'].startswith('papel')
-            if obj.get('observation_age',0) > (4 if paper else 1.5): continue
+            slow_detector = obj['label'].startswith(('papel','envoltura'))
+            if obj.get('observation_age',0) > (4 if slow_detector else 1.5): continue
             observed=round(now-obj.get('observation_age',0),3)
             box=np.asarray(obj['box'],float);center=(box[:2]+box[2:])/2
             candidates=[]
@@ -114,7 +114,7 @@ class SeparationCounter:
             if candidates:
                 _,idx=candidates[0];t=self.tracks[idx];used.add(idx)
                 if observed<=t['observed']+.02: continue
-                if now-t['seen']>(4 if paper else 2.5): t.update(inside=False,zone=None,hits=0)
+                if now-t['seen']>(4 if slow_detector else 2.5): t.update(inside=False,zone=None,hits=0)
             else:
                 t=dict(id=self.next_id,label=obj['label'],counted=False,inside=False,zone=None,hits=0,observed=-1)
                 self.next_id+=1;self.tracks.append(t);used.add(len(self.tracks)-1)

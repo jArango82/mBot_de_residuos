@@ -69,3 +69,8 @@ class StableObjects:
                 used.add(len(self.tracks)-1)
         return [(t['box'].astype(int).tolist(),t['name'],t['confidence'],stamp-t['seen'])
                 for t in self.tracks if t['confirmed']]
+
+
+def merge_observations(general, specialized):
+    """Un objeto no aparece dos veces por proceder de dos modelos."""
+    return [item for item in general if not any(overlap(item[0],other[0])>.35 for other in specialized)] + list(specialized)
