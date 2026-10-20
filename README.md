@@ -55,3 +55,9 @@ También puedes abrir `outputs/Detectar_Residuos.command`. No necesita tener el 
 El repositorio incluye código, configuración, documentación y proyectos mBlock. **No incluye los modelos grandes, el entorno Python ni las capturas locales.** El programa `outputs/preparar_modelos.py` descarga y prepara los modelos; las instrucciones están en la guía de instalación. Requiere Internet para la preparación inicial; el análisis de imagen se hace localmente.
 
 No copies el entorno `work/venv` de un sistema a otro: créalo de nuevo. No hace falta subir modelos de más de 100 MB para compartir este código. Las licencias de las bibliotecas y modelos de terceros siguen siendo aplicables; consulta sus proyectos originales antes de redistribuirlos o usarlos comercialmente.
+
+### Zoom en la cámara
+
+Usa **+ / −** y haz clic en el objeto para centrar la ampliación (1×–4×). **Vista completa** o `0` recuperan el encuadre. El zoom también aporta un recorte al detector, conservando la geometría original para el borde y el conteo. Los objetos ambiguos se muestran en amarillo como «objeto por identificar» y no se cuentan como separados. Consulta [Zoom e inspección](docs/USO.md#zoom-e-inspección-de-objetos).
+
+El botón **IA** o la tecla `i` activa superresolución local ×2 en la vista ampliada. Los modelos de detección y el conteo conservan la imagen original. Preparación opcional: `work/venv/bin/python outputs/preparar_modelos.py --solo-superres`. [Uso y límites de la mejora IA](docs/USO.md#mejora-de-resolución-con-ia).

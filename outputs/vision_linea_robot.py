@@ -12,6 +12,8 @@ from ranger_bluetooth import NOMBRE
 from vision_boundary import AutoBoundary, tape_image
 from vision_papel import PaperDetector
 from vision_residuos import merge_observations
+from vision_zoom import InspectionZoom
+from vision_superres import SuperResolution
 from conteo_residuos import EventStore, SeparationCounter
 from dashboard import serve
 
@@ -81,6 +83,8 @@ def assess_rectangle(boundary, visible, box, age, speed=100, margin=20):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--diagnostico')
+    parser.add_argument('--mejora-ia', action='store_true', help='Superresolucion x2 solo en la vista ampliada')
+    parser.add_argument('--zoom', type=float, default=1., help='Zoom digital inicial entre 1 y 4')
     parser.add_argument('--dashboard-port', type=int, default=8765)
     parser.add_argument('--sin-dashboard', action='store_true')
     parser.add_argument('--conectar', action='store_true')
@@ -93,6 +97,10 @@ def main():
     args = parser.parse_args()
     if not np.isfinite(args.velocidad_max) or args.velocidad_max <= 0 or not np.isfinite(args.margen) or args.margen < 0:
         parser.error('Velocidad positiva y margen no negativo.')
+    if not np.isfinite(args.zoom) or not 1 <= args.zoom <= 4:
+        parser.error('Zoom entre 1 y 4.')
+    enhancer = SuperResolution(args.mejora_ia)
+    zoom = InspectionZoom(max(2.,args.zoom) if args.mejora_ia else args.zoom, enhancer)
     diagnostic = Path(args.diagnostico) if args.diagnostico else None
     if diagnostic:
         diagnostic.mkdir(parents=True, exist_ok=True)
@@ -113,8 +121,8 @@ def main():
             server.shutdown()
             server.server_close()
         raise
-    waste = WasteDetector(camera,args.modelo,[c.strip() for c in args.clases.split(',') if c.strip()] if args.clases else None)
-    paper = PaperDetector(camera)
+    waste = WasteDetector(camera,args.modelo,[c.strip() for c in args.clases.split(',') if c.strip()] if args.clases else None, focus=zoom)
+    paper = PaperDetector(camera, focus=zoom)
     state = CommandState()
     guard = BluetoothGuard(state, args.nombre)
     window = 'Ranger | Residuos automaticos' if args.solo_vision else 'Ranger | Linea y robot sin etiqueta'
@@ -135,6 +143,7 @@ def main():
     try:
         cv2.namedWindow(window, cv2.WINDOW_AUTOSIZE)
         cv2.createTrackbar('Contraste', window, 30, 100, lambda _: None)
+        cv2.setMouseCallback(window, zoom.mouse)
         if args.conectar and not args.solo_vision:
             guard.start()
         while True:
@@ -218,16 +227,19 @@ def main():
                     label={'bottle':'botella','cup':'vaso/taza'}.get(name,name)
                     inside=(bool(cv2.pointPolygonTest(boundary,center,False)>=0)
                             if boundary is not None and visible else None)
-                    objects.append({'type':name,'label':label,'confidence':float(confidence),
+                    countable=name!='objeto por identificar'
+                    color=(230,80,240) if countable else (0,210,255)
+                    objects.append({'countable':countable,'type':name,'label':label,'confidence':float(confidence),
                                     'box':[x1,y1,x2,y2],'center':list(center),'inside':inside,
                                     'observation_age':float(observation_age)})
-                    cv2.rectangle(view,(x1,y1),(x2,y2),(230,80,240),2)
-                    cv2.circle(view,(int(center[0]),int(center[1])),4,(230,80,240),-1)
+                    cv2.rectangle(view,(x1,y1),(x2,y2),color,2)
+                    cv2.circle(view,(int(center[0]),int(center[1])),4,color,-1)
                     caption=f'{label} {confidence:.0%}'+(' (seguimiento)' if observation_age>.7 else '')
                     text_width=cv2.getTextSize(caption,cv2.FONT_HERSHEY_SIMPLEX,.43,1)[0][0]
                     text_x=max(2,min(x1,frame.shape[1]-text_width-3))
                     cv2.putText(view,caption,(text_x,max(16,y1-6)),
-                                cv2.FONT_HERSHEY_SIMPLEX,.43,(230,80,240),1,cv2.LINE_AA)
+                                cv2.FONT_HERSHEY_SIMPLEX,.43,color,1,cv2.LINE_AA)
+            countable_objects=[o for o in objects if o['countable']]
             counter.update(objects,boundary,visible and now-stamp < .3,now)
             panel = np.full((195,frame.shape[1],3),24,np.uint8)
             distance = f'Distancia al borde: {decision.clearance:.0f}px | Cruzar no frena el robot' if decision.clearance is not None else 'Recuadro automatico; R para seleccionar el robot.'
@@ -247,19 +259,20 @@ def main():
             if args.solo_vision:
                 zone_status=('Recuadro automatico activo' if boundary is not None and visible
                              else 'Buscando recuadro; deteccion de objetos activa')
-                rows=[f'POSIBLES RESIDUOS: {len(objects)} | Deteccion automatica',
+                rows=[f'POSIBLES RESIDUOS: {len(countable_objects)} | Por identificar: {len(objects)-len(countable_objects)}',
                       'Envases, latas, papel, carton, bolsas y restos de comida',
-                      zone_status,'Se marcan solos en morado. No hace falta seleccionarlos.',
+                      zone_status,'Morado: posible residuo | Amarillo: por identificar (no se cuenta)',
                       waste.status+' | '+paper.status,'T: reiniciar recuadro | Q: salir',
-                      'Solo camara; robot desconectado.','Camara: '+camera.name]
+                      enhancer.status,'Camara: '+camera.name]
             else:
-                rows[3]+=f' | Posibles residuos: {len(objects)}'
+                rows[3]+=f' | Posibles residuos: {len(countable_objects)}'
                 rows[6]=waste.status
             if now-last_report >= .5:
                 last_report = now
                 store.publish({'session':counter.session,'updated':time.time(),'running':True,
                     'boundary':boundary.tolist() if boundary is not None else None,'visible':bool(visible),
-                    'robot_box':list(box) if box is not None else None,'objects':objects,
+                    'robot_box':list(box) if box is not None else None,'objects':countable_objects,
+                    'unclassified_objects':[o for o in objects if not o['countable']],
                     'outside':bool(outside),'camera_age':float(now-stamp),'connected':bool(guard.connected),'border_status':border_status,
                     'bluetooth':guard.status,'waste_status':waste.status,'paper_status':paper.status})
             for i,row in enumerate(rows):
@@ -267,7 +280,7 @@ def main():
                 if args.solo_vision and i == 0:
                     color = (80,240,80) if objects else (230,230,230)
                 cv2.putText(panel,row[:92],(10,21+i*24),cv2.FONT_HERSHEY_SIMPLEX,.40,color,1,cv2.LINE_AA)
-            view = np.vstack([view,panel])
+            view = np.vstack([zoom.render(view),panel])
             cv2.imshow(window,view)
             if diagnostic and now-last_saved > 1:
                 cv2.imwrite(str(diagnostic/'camara.jpg'),frame)
@@ -280,12 +293,17 @@ def main():
                     'message':decision.reason,'bluetooth':guard.status,'armed':armed,
                     'waste_status':waste.status,'paper_status':paper.status,
                     'detector_age':now-waste_stamp,
+                    'zoom':zoom.level,'zoom_region':zoom.region(frame.shape),
+                    'superres_enabled':enhancer.enabled,'superres_status':enhancer.status,
+                    'superres_ms':enhancer.elapsed_ms,
                     'objects':objects,'vision_only':args.solo_vision},indent=2),encoding='utf-8')
                 last_saved = now
             key = cv2.waitKey(15)&0xff
             if key == ord('q') or cv2.getWindowProperty(window,cv2.WND_PROP_VISIBLE) < 1:
                 break
-            if key in (ord(' '),ord('x')):
+            if zoom.key(key):
+                pass
+            elif key in (ord(' '),ord('x')):
                 armed,command,until = False,'x',0
             elif key == ord('c') and not args.solo_vision:
                 guard.start()

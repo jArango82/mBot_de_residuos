@@ -114,11 +114,12 @@ def small_candidates(result, shape):
     for box,label,score in zip(result['boxes'],result['text_labels'],result['scores']):
         score=float(score);label=label.lower()
         kind=('envoltura' if ('wrapper' in label or 'snack bag' in label) else
-              'papel / servilleta' if any(word in label for word in ('paper','tissue','napkin')) else None)
-        if kind is None or score < (.28 if kind=='envoltura' else .32): continue
+              'papel / servilleta' if any(word in label for word in ('paper','tissue','napkin')) else
+              'objeto por identificar' if ('cap' in label or 'roll' in label) else None)
+        if kind is None or score < ({'envoltura':.28,'objeto por identificar':.35}.get(kind,.32)): continue
         b=np.asarray(box.cpu() if hasattr(box,'cpu') else box,float)
         if min(b[2:]-b[:2])<10 or np.prod(b[2:]-b[:2])>w*h*.2: continue
-        if kind=='envoltura' and (b[0]<2 or b[1]<2 or b[2]>w-2 or b[3]>h-2): continue
+        if kind in ('envoltura','objeto por identificar') and (b[0]<2 or b[1]<2 or b[2]>w-2 or b[3]>h-2): continue
         b[[0,2]]=np.clip(b[[0,2]],0,w-1);b[[1,3]]=np.clip(b[[1,3]],0,h-1)
         found.append((b,kind,score))
     # Evitar verificar muchas cajas anidadas del mismo candidato.
@@ -139,10 +140,11 @@ class SmallWasteRecognizer:
         self.model=AutoModelForZeroShotObjectDetection.from_pretrained(path,local_files_only=True).eval()
         self.verifier=PaperVerifier()
 
-    def detect(self,frame,turns=0):
+    def detect(self,frame,turns=0,round_objects=False):
         view=np.rot90(frame,turns).copy()
         inputs=self.processor(images=cv2.cvtColor(view,cv2.COLOR_BGR2RGB),
-            text='a crumpled paper. a tissue. a candy wrapper. a crumpled plastic wrapper. a snack bag. a bottle.',
+            text=('a bottle cap. a roll of adhesive tape.' if round_objects else
+                  'a crumpled paper. a tissue. a candy wrapper. a crumpled plastic wrapper. a snack bag. a bottle.'),
             return_tensors='pt',size={'shortest_edge':512,'longest_edge':768})
         with self.torch.inference_mode(): outputs=self.model(**inputs)
         result=self.processor.post_process_grounded_object_detection(outputs,inputs.input_ids,
@@ -151,7 +153,8 @@ class SmallWasteRecognizer:
         for box,name,score in small_candidates(result,view.shape):
             original=restore_box(box,frame.shape,turns)
             # Verificar antes de redondear/remapear conserva el mismo recorte en todos los giros.
-            valid=(self.verifier.check_wrapper(view,box)[0] if name=='envoltura'
+            valid=(True if name=='objeto por identificar' else
+                   self.verifier.check_wrapper(view,box)[0] if name=='envoltura'
                    else self.verifier.check(frame,original)[0])
             if valid: verified.append((original,name,score))
         return verified
@@ -159,8 +162,9 @@ class SmallWasteRecognizer:
 
 class PaperDetector:
     """Nombre conservado por compatibilidad; también reconoce envolturas."""
-    def __init__(self,camera):
+    def __init__(self,camera,focus=None):
         self.camera=camera
+        self.focus=focus
         self.stop=threading.Event()
         self.latest=None
         self.status='Cargando papel y envolturas...'
@@ -173,7 +177,7 @@ class PaperDetector:
         try:
             recognizer=SmallWasteRecognizer()
             history=[];previous=[];previous_stamp=0
-            preferred=misses=0
+            search={False:[0,0],True:[0,0]};cycle=0
             last_stamp=None
             self.status='Papel y envolturas: buscando con varias orientaciones'
             while not self.stop.is_set():
@@ -182,25 +186,40 @@ class PaperDetector:
                     self.stop.wait(.05);continue
                 frame,stamp=sample;last_stamp=stamp
                 # Escanear giros si falta la envoltura y conservar la orientación que funciona.
+                from vision_zoom import restore_crop
+                region=self.focus.region(frame.shape) if self.focus is not None else None
+                # Priorizar el detalle y revisar también la imagen completa cada cuatro análisis.
+                round_objects=cycle%4==3
+                focused=region is not None and not round_objects
+                cycle+=1
+                preferred,misses=search[focused]
                 turns=(preferred+misses)%4
-                verified=recognizer.detect(frame,turns)
+                if focused:
+                    x1,y1,x2,y2=region
+                    verified=restore_crop(recognizer.detect(frame[y1:y2,x1:x2],turns),region,frame.shape)
+                else:
+                    verified=recognizer.detect(frame,0 if round_objects else turns,round_objects=round_objects)
                 if any(n=='envoltura' for _,n,_ in verified): preferred=turns;misses=0
                 else: misses+=1
-                history=[(t,boxes) for t,boxes in history if stamp-t<6]
+                if not round_objects: search[focused]=[preferred,misses]
+                history=[(t,boxes) for t,boxes in history if stamp-t<12]
                 confirmed=[]
                 for box,name,score in verified:
-                    prior=[item for _,items in history for item in items] if name=='envoltura' else (previous if stamp-previous_stamp<6 else [])
+                    limit=12 if name=='objeto por identificar' else 6
+                    prior=([item for t,items in history if stamp-t<limit for item in items]
+                           if name in ('envoltura','objeto por identificar') else
+                           (previous if stamp-previous_stamp<6 else []))
                     if any(oldname==name and overlap(box,oldbox)>.35 for oldbox,oldname,_ in prior):
                         confirmed.append((box,name,score))
                 history.append((stamp,verified));previous,previous_stamp=verified,stamp
                 self.latest=(confirmed,frame,stamp)
-                self.status='Papel y envolturas: giros + verificacion visual'
+                self.status='Papel/envolturas + objetos por identificar'
                 self.stop.wait(.1)
         except Exception as exc:
             self.status='Papel/envolturas no disponible: '+str(exc)
 
     @staticmethod
-    def lifetime(name): return 6 if name=='envoltura' else 4
+    def lifetime(name): return {'envoltura':6,'objeto por identificar':8}.get(name,4)
 
     def read(self,frame,stamp):
         result=self.latest
@@ -209,6 +228,9 @@ class PaperDetector:
             # Un análisis sin resultados no borra instantáneamente un seguimiento aún reciente.
             for box,name,score in boxes:
                 if not 0 <= stamp-source_stamp < self.lifetime(name): continue
+                if name=='objeto por identificar' and any(t[5]!='objeto por identificar' and
+                        stamp-t[2]<self.lifetime(t[5]) and overlap(t[4],box)>.35 for t in self.trackers):
+                    continue
                 self.trackers=[t for t in self.trackers if overlap(t[4],box)<.35]
                 x1,y1,x2,y2=box.astype(int)
                 tracker=cv2.TrackerCSRT_create()

@@ -21,6 +21,32 @@ La puntuación no es una certeza de que sea basura. Una botella utilizable tambi
 
 Los residuos se detectan incluso sin recuadro. Con borde confirmado, el diagnóstico distingue centros dentro/fuera; los objetos exteriores no se ocultan en este modo. Ninguna de estas detecciones ordena al robot acercarse.
 
+### Zoom e inspección de objetos
+
+En la ventana de cámara, usa los botones **+** y **−** o las teclas `+`/`=` y `-`. El zoom digital va de 1× a 4×, en pasos de 0,25. Haz clic sobre el objeto para centrar la vista y amplía; también puedes desplazarte con un clic en la miniatura de la esquina superior derecha. **Vista completa** o `0` restablecen 1×.
+
+El detector general analiza tanto la imagen completa como el recorte ampliado. El detector de papel y envolturas prioriza el recorte seleccionado. Las coordenadas se convierten de nuevo a la imagen original, las cajas duplicadas se unen y los objetos cortados por el recorte se descartan de ese análisis. El seguimiento del Ranger, el borde y el conteo siguen trabajando con la imagen completa, independientemente del zoom. La selección del robot con `r` también utiliza la imagen completa.
+
+Puedes iniciar ampliado con `--zoom 2`. El zoom no mueve físicamente el lente ni mejora su enfoque óptico. La LifeCam conectada ofrece hasta 640 × 480: ampliar ayuda a inspeccionar y a ciertos reconocimientos, pero no crea detalle nuevo. Acerca físicamente la cámara si necesitas más detalle, manteniendo visible el recinto completo.
+
+La prueba con un rollo de cinta mostró confusión con tapas de botella. Los resultados de esa clase se presentan ahora en amarillo como **objeto por identificar**. Un análisis adicional busca esos objetos pequeños, pero no afirma que sean tapas o rollos. No se suman a residuos separados ni a los indicadores del dashboard. Una identificación morada de papel/envoltura tiene prioridad sobre una propuesta ambigua coincidente. Para reconocer rollos como clase fiable se necesitan ejemplos y validación adicionales; cambiar el nombre de la etiqueta no entrena al modelo.
+
+### Mejora de resolución con IA
+
+Pulsa el botón **IA** o la tecla `i` para alternar entre zoom normal y superresolución FSRCNN ×2. Al activarla se establece al menos 2× de zoom; haz clic sobre el residuo para centrar el detalle. `0` / **Vista completa** también apaga la mejora. Se puede arrancar con `--mejora-ia --zoom 2`.
+
+La mejora funciona localmente sobre la **vista ampliada**. El detector, el seguimiento, la vigilancia del borde y el conteo reciben los fotogramas originales. La salida de IA tiene el doble de ancho y alto del recorte, y luego se ajusta a la ventana. No transforma la webcam en una cámara HD real, no recupera necesariamente letras o texturas ausentes y no garantiza mejorar la clasificación. Usa `i` para comparar. El panel muestra el tiempo de procesamiento; si una pasada supera 150 ms, se desactiva para recuperar la respuesta del vídeo.
+
+El modelo es opcional y se obtiene con:
+
+```sh
+work/venv/bin/python outputs/preparar_modelos.py --solo-superres
+```
+
+Se descarga una versión fija de aproximadamente 39 KB y se verifica su SHA-256. Si falta o falla, continúa la cámara con zoom normal. Los pesos quedan excluidos de GitHub. La preparación completa de modelos también lo incluye.
+
+Implementación basada en [la interfaz oficial de OpenCV](https://docs.opencv.org/4.x/d5/d29/tutorial_dnn_superres_upscale_image_single.html), usando [FSRCNN TensorFlow](https://github.com/Saafke/FSRCNN_Tensorflow) (licencia Apache-2.0, revisión `6a4812c4ef1c4f5947d79beafa32a05a6eb4a94d`). La prueba local del recorte de 320×240 produjo 640×480 en aproximadamente 17 ms después de la primera pasada; es una medición aislada, no una garantía del rendimiento con todos los detectores activos.
+
 ### Envolturas pequeñas y cámara inclinada
 
 Desde el 20 de octubre, el detector adicional también busca envolturas de dulces y comida. Analiza con mayor resolución, prueba giros de 90 grados si no encuentra la envoltura y conserva la orientación que funciona. Después compara el recorte en cuatro giros con papel, botellas, piso, cinta, muebles y otros objetos. Solo acepta candidatos que favorezcan la clase envoltura y se repitan en observaciones independientes.
@@ -87,7 +113,7 @@ work/venv/bin/python outputs/vision_linea_robot.py --solo-vision --diagnostico w
 
 Guarda y sobrescribe aproximadamente cada segundo `camara.jpg`, `vista.jpg` y `estado.json`. Permite comprobar mensajes, borde, caja del robot, estado BLE y detecciones. Son imágenes reales de tu entorno; se guardan dentro de `work`, excluido de GitHub.
 
-El programa principal acepta `--modelo RUTA`, `--clases clase1,clase2`, `--nombre NOMBRE_BLE`, `--conectar`, `--velocidad-max`, `--margen`, `--solo-vision` y `--diagnostico`, `--dashboard-port` y `--sin-dashboard`. `--clases` filtra nombres existentes; no entrena ni crea categorías nuevas. `--conectar` solo conecta automáticamente en el modo con robot, no habilita movimientos. Este programa no tiene opción `--camara`; la LifeCam se selecciona automáticamente.
+El programa principal acepta `--modelo RUTA`, `--clases clase1,clase2`, `--nombre NOMBRE_BLE`, `--conectar`, `--velocidad-max`, `--margen`, `--solo-vision`, `--zoom`, `--mejora-ia`, `--diagnostico`, `--dashboard-port` y `--sin-dashboard`. `--clases` filtra nombres existentes; no entrena ni crea categorías nuevas. `--conectar` solo conecta automáticamente en el modo con robot, no habilita movimientos. Este programa no tiene opción `--camara`; la LifeCam se selecciona automáticamente.
 
 Consulta las opciones exactas sin abrir la cámara:
 

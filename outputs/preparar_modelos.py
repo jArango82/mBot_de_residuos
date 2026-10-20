@@ -25,8 +25,18 @@ def download(url, target, digest=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--solo-superres', action='store_true', help='Preparar solo la mejora de vista con IA')
     parser.add_argument('--comprobar', action='store_true', help='Solo comprobar si están los archivos necesarios')
     args = parser.parse_args()
+    from vision_superres import MODEL, MODEL_URL, MODEL_SHA
+    if args.solo_superres:
+        if args.comprobar:
+            if not MODEL.is_file() or hashlib.sha256(MODEL.read_bytes()).hexdigest() != MODEL_SHA:
+                raise SystemExit('Falta el modelo de superresolución verificado.')
+        else:
+            download(MODEL_URL, MODEL, MODEL_SHA)
+        print('Superresolución IA x2 preparada.')
+        return
     required = ['yolo11n.pt', 'residuos-world-small.pt', 'clip/ViT-B-32.pt',
                 'grounding-dino-tiny/model.safetensors']
     if args.comprobar:
@@ -35,6 +45,7 @@ def main():
             raise SystemExit('Faltan: ' + ', '.join(missing))
         print('Los archivos de modelos necesarios están presentes.')
         return
+    download(MODEL_URL, MODEL, MODEL_SHA)
     os.environ.setdefault('YOLO_CONFIG_DIR', str(BASE.parent/'work/yolo-config'))
     os.environ.setdefault('MPLCONFIGDIR', str(BASE.parent/'work/matplotlib'))
     download(f'https://openaipublic.azureedge.net/clip/models/{CLIP_SHA}/ViT-B-32.pt',

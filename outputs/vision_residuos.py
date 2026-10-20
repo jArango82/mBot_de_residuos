@@ -3,6 +3,8 @@ import numpy as np
 
 
 def category(name):
+    if name == 'tapa de botella':
+        return 'objeto por identificar'  # Se confunde con rollos y envolturas pequeñas.
     if name.startswith('botella'):
         return 'botella'
     if name.startswith('papel'):

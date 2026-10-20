@@ -9,3 +9,5 @@ __pycache__/
 /outputs/models/**/*.safetensors
 /outputs/models/**/*.bin
 /outputs/models/**/*.partial
+
+/outputs/models/**/*.pb

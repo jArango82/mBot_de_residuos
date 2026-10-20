@@ -96,6 +96,8 @@ class SeparationCounter:
         used=set();emitted=[]
         # Solo muestras nuevas del detector; el mismo resultado mostrado 30 veces no confirma nada.
         for obj in sorted(objects,key=lambda o:o['confidence'],reverse=True):
+            if not obj.get('countable', True) or obj['label']=='objeto por identificar':
+                continue
             slow_detector = obj['label'].startswith(('papel','envoltura'))
             if obj.get('observation_age',0) > (4 if slow_detector else 1.5): continue
             observed=round(now-obj.get('observation_age',0),3)

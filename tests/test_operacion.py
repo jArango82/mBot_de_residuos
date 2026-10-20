@@ -146,14 +146,14 @@ class PipelineTests(unittest.TestCase):
         camera=Camera()
         class Waste:
             status='DETECTOR SIMULADO'
-            def __init__(self,*a):self.stop=threading.Event()
+            def __init__(self,*a,**kwargs):self.stop=threading.Event()
             @property
             def latest_details(self):
                 x=250 if camera.index<5 else (280 if camera.index==5 else 310)
                 return [([x,150,x+20,170],'botella',.8,0)],time.monotonic()
         class Paper:
             status='PAPEL SIMULADO'
-            def __init__(self,*a):self.stop=threading.Event()
+            def __init__(self,*a,**kwargs):self.stop=threading.Event()
             def read(self,*a):return []
         class Boundary:
             boundary=AREA;visible=True;tolerance=20
@@ -167,7 +167,7 @@ class PipelineTests(unittest.TestCase):
                                    ('AutoBoundary',Boundary),('EventStore',lambda:store),('black_lines',lambda *a:[]),
                                    ('black_enclosures',lambda *a:[AREA])]:
                     stack.enter_context(patch.object(app,name,value))
-                for name in ['namedWindow','createTrackbar','imshow','destroyAllWindows']:
+                for name in ['namedWindow','createTrackbar','setMouseCallback','imshow','destroyAllWindows']:
                     stack.enter_context(patch.object(app.cv2,name))
                 stack.enter_context(patch.object(app.cv2,'getTrackbarPos',return_value=30))
                 stack.enter_context(patch.object(app.cv2,'getWindowProperty',return_value=1))

@@ -77,8 +77,9 @@ class Camera:
 
 class WasteDetector:
     """La inferencia es independiente: nunca retrasa la protección del borde."""
-    def __init__(self, camera, model, classes):
+    def __init__(self, camera, model, classes, focus=None):
         self.camera = camera
+        self.focus = focus
         self.model_path = model
         self.classes = classes
         self.latest = ([], 0)
@@ -95,7 +96,8 @@ class WasteDetector:
             if not Path(self.model_path).is_file():
                 raise RuntimeError('Falta el modelo local: ' + self.model_path)
             model = YOLO(self.model_path)
-            from vision_residuos import StableObjects, category
+            from vision_residuos import StableObjects, category, merge_observations
+            from vision_zoom import restore_crop
             stable = StableObjects()
             classes = self.classes if self.classes is not None else list(model.names.values())
             ids = [k for k, v in model.names.items() if v in classes]
@@ -113,12 +115,20 @@ class WasteDetector:
                     continue
                 frame, stamp = sample
                 last = stamp
-                results = model.predict(frame, imgsz=640, conf=.24, classes=ids,
+                region = self.focus.region(frame.shape) if self.focus is not None else None
+                images = [frame]
+                if region is not None:
+                    x1,y1,x2,y2 = region
+                    images.append(frame[y1:y2,x1:x2])
+                results = model.predict(images, imgsz=640, conf=.24, classes=ids,
                                         device='cpu', verbose=False)
-                boxes = []
-                for b in results[0].boxes:
-                    boxes.append((b.xyxy[0].cpu().numpy().astype(int).tolist(),
-                                  category(model.names[int(b.cls.item())]), float(b.conf.item())))
+                groups = []
+                for result in results:
+                    groups.append([(b.xyxy[0].cpu().numpy(), category(model.names[int(b.cls.item())]),
+                                    float(b.conf.item())) for b in result.boxes])
+                boxes = groups[0]
+                if region is not None:
+                    boxes = merge_observations(boxes, restore_crop(groups[1],region,frame.shape))
                 details = stable.update(boxes,stamp)
                 self.latest_details = (details,stamp)
                 self.latest = ([(b,n,c) for b,n,c,_ in details], stamp)
