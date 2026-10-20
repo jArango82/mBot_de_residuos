@@ -1,7 +1,7 @@
-# Requisito acordado para cuando esté disponible el Ranger
+# Sensor físico: requisito anterior pendiente de revisión
 
-El seguidor de línea físico del robot debe detectar la cinta negra y detener los motores directamente desde el programa de la placa, sin depender de la webcam, el Mac o Bluetooth. La webcam se encargará de localizar la zona, el robot y los posibles residuos.
+El requisito inicial era detener la placa al detectar cinta negra con su seguidor de línea. No llegó a implementarse.
 
-Pendiente de implementar y probar con el robot disponible: confirmar modelo y puerto del sensor, calibrar negro/fondo, comprobar que cualquiera de sus detectores provoque parada, e impedir que nuevos comandos de movimiento anulen esa parada mientras siga detectando la cinta. Definir cómo retirar o rearmar el robot de forma controlada. Conservar el buzzer como aviso y el anillo LED apagado durante la visión.
+El 19 de octubre el usuario solicitó poder seguir manejando cerca y fuera del recuadro y pitar solo al salir. Por tanto, **no activar automáticamente la parada del sensor** sin revisar primero cómo debe convivir con ese nuevo comportamiento. El firmware V2 no lee el sensor físico.
 
-Este requisito queda registrado para después; el firmware actual todavía no lee ese sensor.
+Pendiente con el robot disponible: identificar modelo/puerto, calibrar negro/fondo y acordar si se usará como aviso o en otro modo explícito. Ver [Operación V2](../docs/OPERACION_V2.md).

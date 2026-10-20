@@ -2,6 +2,10 @@
 
 [Volver al README](../README.md) · [Uso](USO.md) · [Problemas](PROBLEMAS.md)
 
+## Actualización V2
+
+Consulta [Operación V2](OPERACION_V2.md) para actualizar la placa antes de usar BLE y abrir el dashboard. La carga automática se compiló con mBlock en Mac; Windows/Linux necesitan la placa ya actualizada y siguen sin validación física. Para solo BLE se requieren ahora Bleak y pyserial.
+
 ## Antes de empezar
 
 Puedes usar **solo Bluetooth**, sin webcam ni modelos, o **visión en Mac**, con o sin robot. Para Bluetooth necesitas un Ranger encendido, módulo BLE compatible con el protocolo del proyecto y el [firmware receptor](ROBOT.md). No todos los módulos llamados Bluetooth son BLE ni usan las mismas características.
@@ -59,7 +63,7 @@ Los accesos `.command` son para macOS, usan zsh y esperan el entorno en `work/ve
 
 ```sh
 python3.13 -m venv work/venv
-work/venv/bin/python -m pip install bleak==3.0.2
+work/venv/bin/python -m pip install bleak==3.0.2 pyserial==3.5
 work/venv/bin/python outputs/ranger_bluetooth.py --listar
 work/venv/bin/python outputs/ranger_bluetooth.py --comando p
 ```
@@ -72,13 +76,13 @@ Utiliza Windows 11 con un adaptador BLE y Python 3.13. Estas instrucciones son p
 py -3.13 --version
 py -3.13 -m venv work/venv
 .\work\venv\Scripts\python.exe -m pip install --upgrade pip
-.\work\venv\Scripts\python.exe -m pip install bleak==3.0.2
+.\work\venv\Scripts\python.exe -m pip install bleak==3.0.2 pyserial==3.5
 .\work\venv\Scripts\python.exe outputs/ranger_bluetooth.py --listar
 .\work\venv\Scripts\python.exe outputs/ranger_bluetooth.py --comando p
 .\work\venv\Scripts\python.exe outputs/ranger_bluetooth.py
 ```
 
-Si el robot tiene otro nombre, añade `--nombre "NOMBRE_ENCONTRADO"`. Activa Bluetooth en Windows y desconecta mBlock u otras aplicaciones del robot. La prueba `p` detiene motores y produce un pitido; no envía un movimiento.
+Si el robot tiene otro nombre, añade `--nombre "NOMBRE_ENCONTRADO"`. Activa Bluetooth en Windows y desconecta mBlock u otras aplicaciones del robot. En V2 la prueba `p` produce un pitido sin modificar motores; no envía un movimiento.
 
 **No ejecutes los programas de cámara esperando que funcionen aquí:** importan AVFoundation y usan el selector de dispositivos de Mac. No existe todavía un lanzador de visión para Windows. El control BLE tampoco ha sido probado físicamente en Windows con este montaje.
 
@@ -99,7 +103,7 @@ Comprueba que Python sea al menos 3.11 y BlueZ al menos 5.55. Si tu distribució
 ```sh
 python3 -m venv work/venv
 work/venv/bin/python -m pip install --upgrade pip
-work/venv/bin/python -m pip install bleak==3.0.2
+work/venv/bin/python -m pip install bleak==3.0.2 pyserial==3.5
 work/venv/bin/python outputs/ranger_bluetooth.py --listar
 work/venv/bin/python outputs/ranger_bluetooth.py --comando p
 work/venv/bin/python outputs/ranger_bluetooth.py

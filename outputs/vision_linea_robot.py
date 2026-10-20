@@ -11,6 +11,8 @@ from vision_ranger import Camera, CommandState, BluetoothGuard, WasteDetector
 from ranger_bluetooth import NOMBRE
 from vision_boundary import AutoBoundary, tape_image
 from vision_papel import PaperDetector
+from conteo_residuos import EventStore, SeparationCounter
+from dashboard import serve
 
 
 def line_normal(line):
@@ -44,10 +46,8 @@ def assess_line(reference, visible, box, side, age, speed=100, margin=20):
     a, n = line_normal(reference)
     corners = np.array([[x,y],[x+w,y],[x+w,y+h],[x,y+h]])
     clearance = float(np.min((corners-a) @ n * side))
-    required = margin + speed*(1.25+age)
-    if clearance <= required:
-        return Decision(False, 'CERCA DE LA LINEA: parada y alarma', clearance, required)
-    return Decision(True, 'Robot separado de la linea', clearance, required)
+    # Cruzar la cinta no bloquea motores. El aviso utiliza el cuerpo observado, sin reserva de frenado.
+    return Decision(True, 'FUERA: aviso sonoro; manejo permitido' if clearance < -5 else 'Manejo permitido; aviso solo al salir', clearance, 0)
 
 
 def appearance(frame, box):
@@ -72,14 +72,16 @@ def assess_rectangle(boundary, visible, box, age, speed=100, margin=20):
         side = 1 if (center-origin) @ normal >= 0 else -1
         decisions.append(assess_line(line,True,box,side,age,speed,margin))
     nearest = min(decisions,key=lambda d:d.clearance)
-    nearest.reason = ('Robot separado de los 4 lados' if nearest.safe
-                      else 'CERCA DEL BORDE: parada y alarma')
+    nearest.reason = ('FUERA DEL RECUADRO: aviso; manejo permitido' if nearest.clearance < -5
+                      else 'Dentro del recuadro; manejo permitido hasta el borde')
     return nearest
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--diagnostico')
+    parser.add_argument('--dashboard-port', type=int, default=8765)
+    parser.add_argument('--sin-dashboard', action='store_true')
     parser.add_argument('--conectar', action='store_true')
     parser.add_argument('--solo-vision', action='store_true',help='Detectar residuos sin conectar el robot')
     parser.add_argument('--modelo',default=str(Path(__file__).resolve().parent/'models/residuos-world-small.pt'))
@@ -93,7 +95,23 @@ def main():
     diagnostic = Path(args.diagnostico) if args.diagnostico else None
     if diagnostic:
         diagnostic.mkdir(parents=True, exist_ok=True)
-    camera = Camera()
+    store = EventStore()
+    counter = SeparationCounter(store)
+    server = None
+    if not args.sin_dashboard:
+        try:
+            server = serve(store, args.dashboard_port)
+            print(f'Dashboard: http://127.0.0.1:{server.server_port}', flush=True)
+        except OSError as exc:
+            print('Dashboard: puerto ocupado. Si el panel ya está abierto, recibirá estos datos. '+str(exc), flush=True)
+    try:
+        camera = Camera()
+    except Exception:
+        store.publish({'session':counter.session,'updated':time.time(),'running':False})
+        if server:
+            server.shutdown()
+            server.server_close()
+        raise
     waste = WasteDetector(camera,args.modelo,[c.strip() for c in args.clases.split(',') if c.strip()] if args.clases else None)
     paper = PaperDetector(camera)
     state = CommandState()
@@ -106,6 +124,10 @@ def main():
     initial_radius = 0
     armed, command, until = False, 'x', 0
     last_stamp = last_saved = 0
+    last_report = 0
+    exit_since = None
+    exit_frame = None
+    outside = False
     previous = None
     speeds = []
     notice = 'Recuadro automatico. R: encerrar TODO el robot con el raton.'
@@ -150,18 +172,20 @@ def main():
             now = time.monotonic()
             speeds = [(t,v) for t,v in speeds if now-t < 1]
             speed = max(args.velocidad_max,max((v for _,v in speeds),default=0))
-            safety_box = None
-            if box is not None:
-                # Incluye las esquinas del cuerpo aunque gire o el tracker reduzca la caja.
-                radius = max(initial_radius, np.hypot(box[2],box[3])*.575)
-                cx,cy = box[0]+box[2]/2,box[1]+box[3]/2
-                safety_box = (cx-radius,cy-radius,2*radius,2*radius)
-            decision = (assess_rectangle(boundary,visible,safety_box,now-stamp,speed,args.margen+automatic.tolerance)
+            decision = (assess_rectangle(boundary,visible,box,now-stamp,speed,0)
                         if boundary is not None else
-                        assess_line(reference,visible,safety_box,side,now-stamp,speed,args.margen))
+                        assess_line(reference,visible,box,side,now-stamp,speed,0))
+            crossing = decision.safe and decision.clearance is not None and decision.clearance < -5
+            if crossing:
+                if exit_since is None:
+                    exit_since, exit_frame = now, stamp
+                outside = now-exit_since >= .25 and stamp != exit_frame
+            else:
+                exit_since = exit_frame = None
+                outside = False
             if not decision.safe or not guard.connected:
                 armed, command, until = False, 'x', 0
-            state.set(decision.safe,armed,command,until)
+            state.set(decision.safe,armed,command,until,outside)
             view = frame.copy()
             if boundary is not None:
                 cv2.polylines(view,[boundary.astype(int)],True,(0,255,0) if visible else (0,160,255),3)
@@ -182,7 +206,7 @@ def main():
                 observations=[(b,n,c,a+now-waste_stamp) for b,n,c,a in waste_boxes
                               if not n.startswith('papel')]
             if now-stamp < .3:
-                observations.extend(paper.read(frame,stamp))
+                observations.extend((b,n,c,a+now-stamp) for b,n,c,a in paper.read(frame,stamp))
             objects = []
             if now-stamp < .3:
                 for coordinates,name,confidence,observation_age in observations:
@@ -203,8 +227,9 @@ def main():
                     text_x=max(2,min(x1,frame.shape[1]-text_width-3))
                     cv2.putText(view,caption,(text_x,max(16,y1-6)),
                                 cv2.FONT_HERSHEY_SIMPLEX,.43,(230,80,240),1,cv2.LINE_AA)
+            counter.update(objects,boundary,visible and now-stamp < .3,now)
             panel = np.full((195,frame.shape[1],3),24,np.uint8)
-            distance = f'Distancia del cuerpo: {decision.clearance:.0f}px | Reserva: {decision.required:.0f}px' if decision.clearance is not None else 'Recuadro automatico; R para seleccionar el robot.'
+            distance = f'Distancia al borde: {decision.clearance:.0f}px | Cruzar no frena el robot' if decision.clearance is not None else 'Recuadro automatico; R para seleccionar el robot.'
             border_status = decision.reason
             if boundary is None and reference is None:
                 border_status = ('RECUADRO: estabilizando seleccion automatica...' if candidate is not None
@@ -229,6 +254,13 @@ def main():
             else:
                 rows[3]+=f' | Posibles residuos: {len(objects)}'
                 rows[6]=waste.status
+            if now-last_report >= .5:
+                last_report = now
+                store.publish({'session':counter.session,'updated':time.time(),'running':True,
+                    'boundary':boundary.tolist() if boundary is not None else None,'visible':bool(visible),
+                    'robot_box':list(box) if box is not None else None,'objects':objects,
+                    'outside':bool(outside),'camera_age':float(now-stamp),'connected':bool(guard.connected),'border_status':border_status,
+                    'bluetooth':guard.status,'waste_status':waste.status,'paper_status':paper.status})
             for i,row in enumerate(rows):
                 color = (80,240,80) if i == 0 and decision.safe else ((80,80,255) if i == 0 else (230,230,230))
                 if args.solo_vision and i == 0:
@@ -259,6 +291,10 @@ def main():
             elif key in (ord('b'),ord('r'),ord('n'),ord('t')):
                 armed,command,until = False,'x',0
                 state.set()
+                exit_since = exit_frame = None
+                outside = False
+                if key in (ord('n'),ord('t'),ord('b')):
+                    counter.reset_zone()
                 if key == ord('n'):
                     reference = tracker = box = side = None
                     boundary = None
@@ -312,7 +348,7 @@ def main():
             if time.monotonic()-stamp > .3:
                 state.set()
             else:
-                state.set(decision.safe,armed,command,until)
+                state.set(decision.safe,armed,command,until,outside)
     finally:
         state.set()
         guard.close()
@@ -320,6 +356,10 @@ def main():
         paper.stop.set()
         camera.close()
         cv2.destroyAllWindows()
+        store.publish({'session':counter.session,'updated':time.time(),'running':False})
+        if server:
+            server.shutdown()
+            server.server_close()
 
 
 if __name__ == '__main__':

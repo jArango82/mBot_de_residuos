@@ -2,13 +2,15 @@
 
 [Inicio](../README.md) · [Instalación por sistema](INSTALACION.md)
 
+**Versión actual V2 (19 de octubre):** consulta primero [actualización USB automática y comprobación de versión](OPERACION_V2.md). El receptor anterior sigue físicamente en el robot hasta que conectes USB y lo actualices.
+
 ## Qué necesita la placa
 
 El Ranger debe tener el receptor `outputs/ranger_bluetooth.ino`. El programa de fábrica no interpreta necesariamente las letras de este proyecto. El archivo `outputs/ranger-bluetooth.mblock` conserva el proyecto preparado; `ranger-original.mblock` y `ranger-original.ino` son respaldos anteriores.
 
-Para cargarlo, conecta el Ranger por USB, abre el proyecto preparado en una versión de mBlock compatible con ese archivo, selecciona el dispositivo mBot Ranger y su puerto y utiliza la función de carga a la placa. La interfaz varía según la versión de mBlock; este repositorio no incluye un instalador ni una carga automática. El código depende de la biblioteca Makeblock que proporciona `MeAuriga.h`; un Arduino IDE sin esa biblioteca no podrá compilarlo. No uses un comando de carga genérico con una placa o puerto supuestos.
+Para cargarlo, conecta el Ranger por USB, abre el proyecto preparado en una versión de mBlock compatible con ese archivo, selecciona el dispositivo mBot Ranger y su puerto y utiliza la función de carga a la placa. La interfaz varía según la versión de mBlock; también existe el actualizador USB automático de V2 descrito al inicio de esta guía. El código depende de la biblioteca Makeblock que proporciona `MeAuriga.h`; un Arduino IDE sin esa biblioteca no podrá compilarlo. No uses un comando de carga genérico con una placa o puerto supuestos.
 
-Una vez terminada la carga, desconecta mBlock del dispositivo antes de usar Python. El receptor responde a `?` con `RANGER_READY_V1`. Al arrancar enciende verde y da un pitido; la aplicación de visión apaga ese anillo al conectar. Restaurar el firmware de fábrica sustituye el receptor personalizado. La carga y verificación original se hicieron en Mac; no hay procedimiento de carga validado en Windows o Linux dentro de este proyecto.
+Una vez terminada la carga, desconecta mBlock del dispositivo antes de usar Python. El receptor responde a `?` con `RANGER_READY_V2_20261019`. La versión V2 arranca con LED apagados y sin pitido. Restaurar el firmware de fábrica sustituye el receptor personalizado. La carga y verificación original se hicieron en Mac; no hay procedimiento de carga validado en Windows o Linux dentro de este proyecto.
 
 Para usar BLE sin cable USB, enciende las baterías del robot y deja el módulo conectado. La prueba BLE original se hizo con USB presente como alimentación; queda por verificar el montaje completo funcionando solo con baterías.
 
@@ -28,7 +30,7 @@ El nombre predeterminado es `Makeblock_LE10a56219eb91`, correspondiente al módu
 work/venv/bin/python outputs/ranger_bluetooth.py --nombre "NOMBRE_ENCONTRADO" --comando p
 ```
 
-La búsqueda acepta nombre BLE o identificador anunciado. No asumas que el identificador tendrá el mismo formato en todos los sistemas. El controlador valida la respuesta del receptor antes de aceptar la conexión. Se conecta directamente mediante Bleak; no necesita un puerto serie Bluetooth.
+La búsqueda acepta nombre BLE o identificador anunciado. No asumas que el identificador tendrá el mismo formato en todos los sistemas. El controlador intenta actualizar por USB si hay un puerto disponible y valida la versión V2 antes de aceptar la conexión BLE. Requiere `pyserial` además de Bleak. Se conecta directamente mediante Bleak; no necesita un puerto serie Bluetooth.
 
 ## Control manual en consola
 
@@ -42,14 +44,14 @@ Escribe una orden y pulsa Enter:
 - `w 2`: avanzar dos segundos; la duración también sirve para `a`, `s`, `d`. Debe ser mayor que cero y como máximo 10 segundos.
 - `x`: detener motores.
 - `0`: apagar LED; `1`: rojo; `2`: verde; `3`: azul.
-- `p`: detener y emitir un pitido de unos 200 ms.
+- `p`: emitir un pitido no bloqueante de unos 200 ms, sin detener motores; `x` sigue siendo la parada.
 - `q`: salir de la consola y solicitar parada; esta letra no se envía al firmware.
 
 También puedes usar `--comando w --segundos 0.5` para una orden individual. No ejecutes esa prueba hasta comprobar alimentación, sentido de motores y espacio disponible. Los motores conservan la configuración del montaje de orugas; no se ha validado físicamente su desplazamiento. **La consola no mira la webcam ni lee el sensor de línea.**
 
 ## Desde un script Python
 
-Guarda tu script dentro de `outputs`, junto a `ranger_bluetooth.py`, y ejecútalo con el Python del entorno. Ejemplo de conexión y buzzer, sin movimiento:
+Guarda tu script dentro de `outputs`, junto a `ranger_bluetooth.py`, y ejecútalo con el Python del entorno. Ejemplo de conexión y buzzer, sin órdenes de movimiento:
 
 ```python
 import asyncio
@@ -79,7 +81,7 @@ Transporte BLE del módulo utilizado:
 
 ## Control USB conservado
 
-`outputs/ranger.py` y `outputs/ranger_usb.ino` corresponden al controlador USB. Requiere instalar `pyserial`, que no está en `requirements_vision.txt`:
+`outputs/ranger.py` y `outputs/ranger_usb.ino` corresponden al controlador USB. Requiere `pyserial`, ya incluido en `requirements_vision.txt`:
 
 ```sh
 work/venv/bin/python -m pip install pyserial

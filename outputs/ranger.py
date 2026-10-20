@@ -30,7 +30,7 @@ class Ranger:
         fin = time.monotonic() + timeout
         while time.monotonic() < fin:
             linea = self.serial.readline().decode('ascii', errors='replace').strip()
-            if linea == esperado:
+            if linea == esperado or (esperado == 'RANGER_READY_V1' and linea == 'RANGER_READY_V2_20261019'):
                 return linea
             if linea.startswith('ERR'):
                 raise RuntimeError(linea)

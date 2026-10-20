@@ -46,11 +46,11 @@ Enciende el robot y su módulo, activa BLE en el ordenador, acércalo y desconec
 
 ## Conecta pero no responde el receptor
 
-La conexión GATT no basta: el programa espera `RANGER_READY_V1` y `OK`. Verifica el firmware personalizado y el módulo compatible con las características TX/RX documentadas. Restaurar fábrica elimina ese receptor. Cierra otros programas que puedan leer el puerto. Prueba `--comando x` y `--comando p` antes de cualquier movimiento.
+La conexión GATT no basta: el programa espera `RANGER_READY_V2_20261019` y `OK`. Verifica el firmware personalizado y el módulo compatible con las características TX/RX documentadas. Restaurar fábrica elimina ese receptor. Cierra otros programas que puedan leer el puerto. Prueba `--comando x` y `--comando p` antes de cualquier movimiento.
 
 ## No se mueve aunque pulse las teclas
 
-En visión necesitas límite visible, robot seleccionado con `r`, conexión con `c`, condición segura y habilitación con `e`. Enfoca la ventana y usa minúsculas. Si la cámara se movió, pulsa `n` y repite selección. Los márgenes pueden dejar poco espacio: amplía el recinto antes de reducirlos sin calibración. En consola BLE debes pulsar Enter; allí no se utiliza `e`.
+En visión necesitas límite visible, robot seleccionado con `r`, conexión con `c`, imagen reciente y habilitación con `e`. En V2 la proximidad o cruce no bloquea. Enfoca la ventana y usa minúsculas. Si la cámara se movió, pulsa `n` y repite selección. Si el cliente indica firmware antiguo, actualiza por USB siguiendo la guía V2. En consola BLE debes pulsar Enter; allí no se utiliza `e`.
 
 ## GitHub vuelve a rechazar archivos grandes
 

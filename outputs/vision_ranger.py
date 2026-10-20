@@ -130,11 +130,11 @@ class WasteDetector:
 class CommandState:
     def __init__(self):
         self.lock = threading.Lock()
-        self.snapshot = (0, False, False, 'x', 0)
+        self.snapshot = (0, False, False, 'x', 0, False)
 
-    def set(self, safe=False, armed=False, command='x', until=0):
+    def set(self, safe=False, armed=False, command='x', until=0, outside=False):
         with self.lock:
-            self.snapshot = (time.monotonic(), safe, armed, command, until)
+            self.snapshot = (time.monotonic(), safe, armed, command, until, outside)
 
     def get(self):
         with self.lock:
@@ -172,25 +172,20 @@ class BluetoothGuard:
             self.status = 'Bluetooth conectado | LED apagados | Aviso por buzzer'
             alarm, last_beep, moving = False, 0, False
             while not self.stop.is_set():
-                stamp, safe, armed, command, until = self.state.get()
+                stamp, safe, armed, command, until, outside = self.state.get()
                 now = time.monotonic()
                 fresh = now - stamp <= .30
                 effective_safe = safe and fresh
-                # Alarmar ante límite o pérdida de visión, incluso sin movimiento.
-                alarm = not effective_safe
-                if alarm:
-                    await send('x')
-                    moving = False
-                    if now - last_beep > 2:
-                        await send('p')
-                        last_beep = now
-                elif armed and command in 'wasd' and now < until:
+                # La línea no bloquea; una pérdida de vigilancia sí cancela pasos, en silencio.
+                if effective_safe and armed and command in 'wasd' and now < until:
                     await send(command)
                     moving = True
-                else:
-                    if moving:
-                        await send('x')
-                        moving = False
+                elif moving or not effective_safe:
+                    await send('x')
+                    moving = False
+                if outside and effective_safe and now - last_beep > 2:
+                    await send('p')  # V2: sonido no bloqueante, no toca motores.
+                    last_beep = now
                 await asyncio.sleep(.06)
         except Exception as exc:
             self.status = 'Bluetooth detenido: ' + (str(exc) or type(exc).__name__)

@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import math
 from bleak import BleakClient, BleakScanner
+from actualizar_ranger import VERSION
 
 NOMBRE = 'Makeblock_LE10a56219eb91'
 TX = '0000ffe3-0000-1000-8000-00805f9b34fb'
@@ -30,12 +31,16 @@ class RangerBluetooth:
         async with asyncio.timeout(timeout):
             while True:
                 linea = await self.lineas.get()
+                if linea.startswith('RANGER_READY_') and esperado == VERSION and linea != VERSION:
+                    raise RuntimeError('Firmware antiguo. Conecta USB y ejecuta actualizar_ranger.py --esperar antes de usar esta versión.')
                 if linea == esperado:
                     return linea
                 if linea.startswith('ERR'):
                     raise RuntimeError(linea)
 
     async def conectar(self):
+        from actualizar_ranger import update_if_present
+        await asyncio.to_thread(update_if_present)
         dispositivo = await BleakScanner.find_device_by_filter(
             lambda d, a: self.nombre in (d.name, a.local_name, d.address), timeout=12)
         if dispositivo is None:
@@ -45,7 +50,7 @@ class RangerBluetooth:
             await self.client.connect()
             await self.client.start_notify(RX, self._recibir)
             await self.client.write_gatt_char(TX, b'?', response=False)
-            await self._respuesta('RANGER_READY_V1')
+            await self._respuesta(VERSION)
             await self.enviar('x')
         except BaseException:
             await self.client.disconnect()

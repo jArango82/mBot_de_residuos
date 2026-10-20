@@ -2,7 +2,7 @@
 
 Prototipo educativo para observar una zona con una webcam, detectar posibles residuos y controlar un **mBot Ranger** mediante letras enviadas por Bluetooth. El objetivo futuro es que recoja residuos sin salir de la zona delimitada con cinta negra.
 
-**Estado al 5 de octubre de 2026:** hay detección visual experimental y control manual del robot. **Todavía no recoge residuos ni navega automáticamente hacia ellos.**
+**Estado al 19 de octubre de 2026:** hay detección visual experimental y control manual del robot. **Todavía no recoge residuos ni navega automáticamente hacia ellos.**
 
 ## Qué hay disponible
 
@@ -11,10 +11,11 @@ Prototipo educativo para observar una zona con una webcam, detectar posibles res
 - Un detector adicional de papel con verificación para reducir falsos positivos.
 - Seguimiento del Ranger sin etiqueta impresa: se selecciona una vez con el ratón.
 - Control manual por Bluetooth con `w`, `a`, `s`, `d`, parada, luces y buzzer.
-- Protección visual experimental que bloquea el movimiento cerca del borde o al perder la visión. Durante este modo los LED se apagan y la alarma usa el buzzer.
-- Firmware con parada tras 600 ms sin nuevas órdenes de movimiento.
+- Aviso sonoro al salir del borde, sin bloquear el manejo por proximidad o cruce. Se mantiene parada silenciosa por pérdida de visión y los LED apagados.
+- Firmware V2 actualizable por USB, con pitido sin frenado y parada tras 600 ms sin nuevas órdenes de movimiento.
+- Dashboard local con conteo de salidas del recinto, categorías, gráficos, mapa, historial y exportación CSV.
 
-**Pendiente:** parada con el seguidor de línea físico, adaptación de la cámara a Windows/Linux, navegación, recogida y validación física de la protección del borde. Una detección en pantalla no genera movimientos hacia el residuo.
+**Pendiente:** carga y validación física del firmware V2, revisión del futuro uso del sensor físico, adaptación de cámara a Windows/Linux, navegación y recogida. Una detección en pantalla no genera movimientos hacia el residuo.
 
 ## Compatibilidad real
 
@@ -23,6 +24,12 @@ Prototipo educativo para observar una zona con una webcam, detectar posibles res
 - **Linux:** instrucciones para control Bluetooth con BlueZ. No probado en este proyecto. La cámara de esta versión no funciona en Linux.
 
 Instalar las dependencias no convierte la aplicación de cámara en multiplataforma: usa AVFoundation, exclusivo de Apple. Consulta las instrucciones de tu sistema antes de instalar.
+
+## Novedades V2
+
+Consulta [actualización USB, manejo sin frenado por borde y dashboard](docs/OPERACION_V2.md). Abre `outputs/Actualizar_Ranger.command` para esperar la conexión USB y actualizar. Abre `outputs/Abrir_Dashboard.command` para ver el panel en http://127.0.0.1:8765. Para registrar salidas, abre además la prueba de cámara.
+
+La versión V2 está compilada y probada por software; todavía no está cargada en el Ranger. La carga automática requiere las herramientas de mBlock del Mac.
 
 ## Empieza aquí
 

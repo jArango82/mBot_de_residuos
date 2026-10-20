@@ -18,10 +18,9 @@ void setup() {
   Serial.begin(115200);
   parar();
   anilloLeds.setpin(44);
-  anilloLeds.setColor(0, 0, 80, 0);
+  anilloLeds.setColor(0, 0, 0, 0);
   anilloLeds.show();
-  buzzer.tone(45, 880, 150);
-  Serial.println("RANGER_READY_V1");
+  Serial.println("RANGER_READY_V2_20261019");
 }
 void loop() {
   if (enMovimiento && millis() - ultimoMovimiento > 600) {
@@ -32,7 +31,7 @@ void loop() {
   char comando = Serial.read();
   if (comando >= 'A' && comando <= 'Z') comando += 32;
   if (comando == '\r' || comando == '\n') return;
-  if (comando == '?') { Serial.println("RANGER_READY_V1"); return; }
+  if (comando == '?') { Serial.println("RANGER_READY_V2_20261019"); return; }
   if (comando == 'w' || comando == 'a' || comando == 's' || comando == 'd') {
     ultimoMovimiento = millis();
     enMovimiento = true;
@@ -47,7 +46,7 @@ void loop() {
     case '2': anilloLeds.setColor(0,0,255,0); anilloLeds.show(); break;
     case '3': anilloLeds.setColor(0,0,0,255); anilloLeds.show(); break;
     case '0': anilloLeds.setColor(0,0,0,0); anilloLeds.show(); break;
-    case 'p': parar(); buzzer.tone(45,1000,200); break;
+    case 'p': tone(45,1000,200); break; // Aviso no bloqueante, sin frenar
     default: parar(); Serial.println("ERR_COMMAND"); return;
   }
   Serial.print("OK ");

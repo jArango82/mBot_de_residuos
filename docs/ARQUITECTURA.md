@@ -2,11 +2,19 @@
 
 [Inicio](../README.md) · [Estado](ESTADO.md)
 
+## Nuevos componentes V2
+
+- `outputs/actualizar_ranger.py`: identifica la versión, compila y carga por USB; espera conexión con `--esperar`.
+- `outputs/conteo_residuos.py`: asociación temporal de objetos y registro SQLite de salidas únicas por trayectoria.
+- `outputs/dashboard.py` y `outputs/dashboard/index.html`: servidor local de solo lectura, indicadores y exportación CSV.
+- `tests/test_operacion.py`: pruebas reproducibles sin hardware.
+- `work/estadisticas.sqlite3`: datos locales persistentes; no se suben a GitHub.
+
 ## Flujo general
 
 La LifeCam entrega imágenes a la clase `Camera`. El programa principal detecta la cinta y sigue el cuerpo del robot. En paralelo se ejecutan los detectores de objetos y papel para que la inferencia no detenga la vigilancia del borde. Los objetos se muestran en pantalla; no alimentan un navegador autónomo.
 
-Cuando el usuario solicita un paso y la geometría lo permite, `BluetoothGuard` envía letras al receptor del Ranger. Si la imagen pierde frescura o el estado deja de permitir movimiento, el controlador solicita parada. La placa mantiene además su temporizador independiente por ausencia de órdenes.
+Cuando el usuario solicita un paso y la geometría lo permite, `BluetoothGuard` envía letras al receptor del Ranger. La proximidad/cruce del borde no bloquea movimiento y el aviso no frena. Si la imagen pierde frescura o se pierde el seguimiento, el controlador solicita parada silenciosa. La placa mantiene además su temporizador independiente por ausencia de órdenes.
 
 ## Aplicaciones y accesos
 
@@ -16,7 +24,7 @@ Todos los archivos siguientes están en `outputs/`:
 - `Detectar_Residuos.command`: abre el programa anterior con `--solo-vision`.
 - `Probar_Robot_Linea.command`: abre el mismo programa con controles del robot disponibles.
 - `vision_linea.py` y `Detectar_Linea.command`: prueba de segmentos negros, sin Bluetooth.
-- `vision_ranger.py` y `Iniciar_Vision.command`: aplicación anterior con ArUco y YOLO11n. El módulo también contiene componentes compartidos de cámara, detección y control BLE utilizados por la aplicación actual.
+- `vision_ranger.py`: aplicación anterior con ArUco y YOLO11n. `Iniciar_Vision.command` ahora ejecuta la aplicación actual sin etiqueta. El módulo también contiene componentes compartidos de cámara, detección y control BLE utilizados por la aplicación actual.
 - `ranger_bluetooth.py` y `Iniciar_Bluetooth.command`: consola BLE y clase reutilizable `RangerBluetooth`.
 - `ranger.py` y `Iniciar_Ranger.command`: consola USB histórica, dependencia adicional `pyserial`.
 

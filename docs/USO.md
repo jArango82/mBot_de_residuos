@@ -59,23 +59,15 @@ Otros controles:
 
 Si confirmas **una sola línea**, solo vigilas ese límite, no cuatro paredes imaginarias. Coloca el robot en el lado permitido antes de seleccionarlo. Un recuadro nuevo detectado en otra posición exige nueva selección y habilitación; la selección automática del borde no habilita motores por sí sola.
 
-### Qué hace la protección visual
+### Aviso de salida y continuidad de manejo
 
-Bloquea las órdenes al perder robot, borde o imagen reciente, o al acercarse al límite. Envía parada y buzzer, con los LED apagados porque sus reflejos alteraban el seguimiento. El aviso sonoro se repite aproximadamente cada dos segundos mientras persiste el problema. Sin conexión BLE no puede hacer sonar físicamente el robot.
+La proximidad y el cruce de cinta ya no bloquean pasos. Solo se pita al confirmar salida del cuerpo, con LEDs apagados. La pérdida de visión/seguimiento sí cancela pasos en silencio. Necesita firmware V2, cuyo pitido no detiene motores. `--velocidad-max` y `--margen` se conservan por compatibilidad con comandos antiguos, pero no aplican frenado por borde en este modo.
 
-Reserva espacio para el cuerpo y un recorrido estimado hasta detenerse. Valores predeterminados: 100 píxeles/s de velocidad máxima prevista, 20 píxeles de margen y una reserva temporal de 1.25 segundos más la antigüedad de imagen. La estabilización del borde añade holgura. Son medidas de imagen, **no centímetros ni valores calibrados de este robot**.
-
-Para aumentar las reservas:
-
-```sh
-work/venv/bin/python outputs/vision_linea_robot.py --velocidad-max 180 --margen 30
-```
-
-La vigilancia corta autorización cuando deja de actualizarse durante 300 ms; el firmware tiene además su temporizador de 600 ms. Esto no constituye una garantía física de que nunca cruce la cinta: faltan pruebas de velocidad y frenado. No controles simultáneamente desde otra ventana, mBlock o el teléfono. El control BLE directo no incorpora esta protección visual.
+Consulta [Operación V2](OPERACION_V2.md) para actualizar por USB, abrir el dashboard y conocer la regla de conteo dentro → completamente fuera. Espacio/`x`, el vencimiento de pasos y el temporizador de comunicación siguen deteniendo motores.
 
 ## 4. Modo antiguo con etiqueta
 
-`outputs/Iniciar_Vision.command` ejecuta `vision_ranger.py`. Se conserva como alternativa histórica; **no es el inicio recomendado para residuos variados**. Usa YOLO11n para `bottle,cup` y requiere la etiqueta `outputs/Etiqueta_Ranger.png` (ArUco 4x4_50, ID 7).
+`vision_ranger.py` conserva el programa antiguo si se ejecuta directamente, con sus antiguas decisiones de bloqueo; no lo uses para el nuevo manejo. `outputs/Iniciar_Vision.command` ahora abre el modo actual `vision_linea_robot.py`. Se conserva como alternativa histórica; **no es el inicio recomendado para residuos variados**. Usa YOLO11n para `bottle,cup` y requiere la etiqueta `outputs/Etiqueta_Ranger.png` (ArUco 4x4_50, ID 7).
 
 Imprime el marcador con margen blanco, aproximadamente 6–8 cm de lado, y fíjalo arriba del robot. Confirma el recuadro con `b`, selecciona todo el cuerpo con `r` y Enter, conecta con `c` y habilita con `e`. `w/a/s/d`, espacio/`x`, `n` y `q` conservan las funciones de movimiento, parada, reinicio y salida. No mezcles la calibración de este modo con la del programa sin etiqueta.
 
@@ -87,7 +79,7 @@ work/venv/bin/python outputs/vision_linea_robot.py --solo-vision --diagnostico w
 
 Guarda y sobrescribe aproximadamente cada segundo `camara.jpg`, `vista.jpg` y `estado.json`. Permite comprobar mensajes, borde, caja del robot, estado BLE y detecciones. Son imágenes reales de tu entorno; se guardan dentro de `work`, excluido de GitHub.
 
-El programa principal acepta `--modelo RUTA`, `--clases clase1,clase2`, `--nombre NOMBRE_BLE`, `--conectar`, `--velocidad-max`, `--margen`, `--solo-vision` y `--diagnostico`. `--clases` filtra nombres existentes; no entrena ni crea categorías nuevas. `--conectar` solo conecta automáticamente en el modo con robot, no habilita movimientos. Este programa no tiene opción `--camara`; la LifeCam se selecciona automáticamente.
+El programa principal acepta `--modelo RUTA`, `--clases clase1,clase2`, `--nombre NOMBRE_BLE`, `--conectar`, `--velocidad-max`, `--margen`, `--solo-vision` y `--diagnostico`, `--dashboard-port` y `--sin-dashboard`. `--clases` filtra nombres existentes; no entrena ni crea categorías nuevas. `--conectar` solo conecta automáticamente en el modo con robot, no habilita movimientos. Este programa no tiene opción `--camara`; la LifeCam se selecciona automáticamente.
 
 Consulta las opciones exactas sin abrir la cámara:
 
