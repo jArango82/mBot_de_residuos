@@ -26,7 +26,11 @@ Deben aparecer dos `True`. Las variantes `headless` no son adecuadas para esta a
 
 ## No abre la webcam externa
 
-Conecta una única Microsoft LifeCam, cierra otras aplicaciones de vídeo y revisa el permiso Cámara para la aplicación que lanza Python en Ajustes del Sistema. Reinicia la prueba después de cambiar conexiones. El selector rechaza cámaras que no contengan `Microsoft LifeCam` en el nombre, incluida la integrada. Otra webcam requiere adaptar el selector; no basta con enchufarla.
+Ejecuta `work/venv/bin/python outputs/vision_linea_robot.py --listar-camaras` para ver qué cámaras detecta el Mac. Se eligen solas una LifeCam, un Samsung («Samsung», «Galaxy» o «Android» en el nombre) o Camo, si hay solo una. Con varias, o con otra webcam externa, indica cuál con `--camara nombre` o su número. La cámara integrada del Mac se rechaza siempre.
+
+Si el teléfono no aparece, revisa que el cable sea de datos y que esté elegida la opción **Cámara web** en la notificación USB, o que Camo Studio esté abierto con su extensión de cámara activa. Cierra otras aplicaciones de vídeo y revisa el permiso Cámara para la aplicación que lanza Python en Ajustes del Sistema. Reinicia la prueba después de cambiar conexiones.
+
+Si al arrancar aparece un aviso de **bandas negras**, la proporción pedida no coincide con la del teléfono: prueba `--resolucion 1280x720` o `--resolucion 1920x1080`. Las bandas negras podrían confundirse con cinta. Un aviso de **imagen vertical** indica que el teléfono está en vertical: gíralo.
 
 ## Solo ve una línea o el borde parpadea
 

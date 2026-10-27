@@ -4,13 +4,45 @@
 
 Los comandos de cámara de esta guía son para **Mac con el entorno y los modelos instalados**. Escríbelos desde la raíz del proyecto. Para las teclas, haz clic en la ventana de vídeo y usa letras minúsculas, sin Shift. En la consola Bluetooth, en cambio, cada orden se confirma con Enter.
 
+## Cámara: LifeCam o Samsung Galaxy
+
+El programa usa siempre una cámara externa, **nunca la del Mac**. Si hay una sola cámara reconocida conectada, la elige sola: Microsoft LifeCam, un teléfono Samsung (nombre con «Samsung», «Galaxy» o «Android») o Camo. Si no encuentra ninguna, se detiene y muestra la lista de cámaras que ve el Mac.
+
+Para usar el **Samsung Galaxy S24 Ultra**:
+
+1. Conéctalo con un cable USB-C de datos, abre la notificación USB del teléfono y elige **Cámara web**, si aparece en tu versión de software.
+2. Si no aparece, instala **Camo** en el teléfono y **Camo Studio** en el Mac (USB o Wi-Fi), y activa su extensión de cámara para que otras aplicaciones reciban el vídeo.
+3. Comprueba qué cámaras ve el Mac:
+
+```sh
+work/venv/bin/python outputs/vision_linea_robot.py --listar-camaras
+```
+
+4. Abre el programa como siempre. Si hay más de una cámara reconocida, o el teléfono aparece con otro nombre, elígela: `--camara samsung`, `--camara camo`, `--camara lifecam`, parte del nombre o su número en la lista.
+
+Coloca el teléfono **en horizontal**, fijo, encima de la zona. Su imagen suele ser 16:9: más ancha y menos alta que la de la LifeCam. Comprueba que se vean los cuatro lados del recuadro y una franja exterior.
+
+**Resolución.** Con el teléfono se piden hasta 1280 px de lado mayor, con la misma proporción que entrega la cámara, para no deformarla ni añadir bandas negras. El borde, el seguimiento del robot, el conteo y el dashboard trabajan con una copia reducida a 640 px de lado mayor (640 × 360 en 16:9), la misma escala con la que se ajustaron para la LifeCam. La imagen original se usa en el zoom y en los detectores del recorte ampliado: con el teléfono, el zoom muestra detalle real en vez de solo agrandar píxeles. `--resolucion 1920x1080` pide más detalle, con más carga y, en Camo por Wi-Fi, posiblemente más retraso. Al arrancar se indica el tamaño que entrega realmente la cámara, y el panel muestra tamaño y fps.
+
+**Imagen congelada.** Una cámara virtual como Camo puede repetir la última imagen si se corta el teléfono. Si el robot lleva más de 0,6 s en marcha sin ningún cambio en la imagen, se detiene y deshabilita; vuelve a habilitar con `e` después de revisar la cámara. Con el robot quieto no se exige cambio, porque una escena inmóvil puede producir imágenes idénticas. El programa no mide el retraso de la imagen: compruébalo, por ejemplo, filmando un cronómetro en la pantalla del Mac.
+
+Con Camo gratuito aparece su logo en la esquina inferior derecha; el programa ignora lo que se detecte sobre él. No dejes residuos en esa esquina de la imagen.
+
+**Detección con el teléfono.** El detector general usa la gráfica del Mac (si existe) y analiza la imagen del teléfono a 1280 px; sin gráfica vuelve al procesador a 640 px. Una caja que ya se sigue se mantiene con puntuaciones más bajas que las necesarias para crear una nueva, y su nombre es el más votado en los últimos instantes, para que no parpadee ni cambie por una sola imagen. Una propuesta «objeto por identificar» ya no oculta una detección concreta en el mismo sitio. El papel o la servilleta blanca arrugada se confundía con una envoltura; ahora un objeto arrugado **sin color** se nombra papel (una envoltura de plástico blanco o transparente también saldría como papel), y las cajas de cartón ya no se toman por envolturas: el detector de papel también reconoce cajas pequeñas (por ejemplo, de medicamento), que el detector general apenas veía. Con zoom, ese detector alterna la zona ampliada con la imagen completa. Un objeto quieto se sigue mostrando entre reconocimientos (hasta 20 s) mientras conserve su aspecto en el mismo sitio; si se retira, desaparece. Para contarlo como separado hacen falta reconocimientos recientes. Cuanto más lejos esté el teléfono, más pequeños se ven los residuos y peor se detectan: **móntalo fijo** y lo más cerca posible, viendo aún todo el recuadro.
+
+**Detector entrenado con tus residuos.** Si existe `outputs/models/residuos-propio.pt` (ver [Entrenamiento](ENTRENAMIENTO.md)), el panel muestra «modelo propio» y sus detecciones tienen prioridad donde coinciden con las de los detectores genéricos. Solo reconoce los objetos con los que se entrenó. `--sin-modelo-propio` lo desactiva y `--modelo-propio RUTA` usa otro archivo.
+
+Un teléfono Samsung conectado por USB tampoco se confunde con el Ranger al conectar Bluetooth o actualizar el firmware: sus puertos serie se excluyen.
+
+Esta adaptación está probada con simulaciones, no todavía con el teléfono real.
+
 ## 1. Ver residuos sin robot
 
 ```sh
 work/venv/bin/python outputs/vision_linea_robot.py --solo-vision
 ```
 
-Equivale a abrir `outputs/Detectar_Residuos.command`. No conecta Bluetooth ni necesita Ranger. Fija la LifeCam encima de la superficie, con iluminación uniforme, y coloca los objetos visibles y separados al principio. No hace falta marcarlos con el ratón.
+Equivale a abrir `outputs/Detectar_Residuos.command`. No conecta Bluetooth ni necesita Ranger. Fija la cámara encima de la superficie, con iluminación uniforme, y coloca los objetos visibles y separados al principio. No hace falta marcarlos con el ratón.
 
 Se dibujan cajas con etiquetas y puntuaciones. **Botella** no distingue vidrio de plástico. Las categorías configuradas incluyen latas, vasos, cartón, bolsas, envolturas, tapas, platos, cubiertos y restos de comida; la existencia de una categoría no garantiza que reconozca todos sus ejemplos. Papel y servilletas pasan por un detector adicional y una verificación que puede preferir no etiquetar objetos ambiguos.
 
@@ -27,7 +59,7 @@ En la ventana de cámara, usa los botones **+** y **−** o las teclas `+`/`=` y
 
 El detector general analiza tanto la imagen completa como el recorte ampliado. El detector de papel y envolturas prioriza el recorte seleccionado. Las coordenadas se convierten de nuevo a la imagen original, las cajas duplicadas se unen y los objetos cortados por el recorte se descartan de ese análisis. El seguimiento del Ranger, el borde y el conteo siguen trabajando con la imagen completa, independientemente del zoom. La selección del robot con `r` también utiliza la imagen completa.
 
-Puedes iniciar ampliado con `--zoom 2`. El zoom no mueve físicamente el lente ni mejora su enfoque óptico. La LifeCam conectada ofrece hasta 640 × 480: ampliar ayuda a inspeccionar y a ciertos reconocimientos, pero no crea detalle nuevo. Acerca físicamente la cámara si necesitas más detalle, manteniendo visible el recinto completo.
+Puedes iniciar ampliado con `--zoom 2`. El zoom no mueve físicamente el lente ni mejora su enfoque óptico. La LifeCam conectada ofrece hasta 640 × 480: ampliar ayuda a inspeccionar y a ciertos reconocimientos, pero no crea detalle nuevo. Con el teléfono, el recorte sale de su imagen original de mayor resolución y sí contiene más detalle, hasta el límite de lo que capta su lente. Acerca físicamente la cámara si necesitas más detalle, manteniendo visible el recinto completo.
 
 La prueba con un rollo de cinta mostró confusión con tapas de botella. Los resultados de esa clase se presentan ahora en amarillo como **objeto por identificar**. Un análisis adicional busca esos objetos pequeños, pero no afirma que sean tapas o rollos. No se suman a residuos separados ni a los indicadores del dashboard. Una identificación morada de papel/envoltura tiene prioridad sobre una propuesta ambigua coincidente. Para reconocer rollos como clase fiable se necesitan ejemplos y validación adicionales; cambiar el nombre de la etiqueta no entrena al modelo.
 
@@ -113,7 +145,7 @@ work/venv/bin/python outputs/vision_linea_robot.py --solo-vision --diagnostico w
 
 Guarda y sobrescribe aproximadamente cada segundo `camara.jpg`, `vista.jpg` y `estado.json`. Permite comprobar mensajes, borde, caja del robot, estado BLE y detecciones. Son imágenes reales de tu entorno; se guardan dentro de `work`, excluido de GitHub.
 
-El programa principal acepta `--modelo RUTA`, `--clases clase1,clase2`, `--nombre NOMBRE_BLE`, `--conectar`, `--velocidad-max`, `--margen`, `--solo-vision`, `--zoom`, `--mejora-ia`, `--diagnostico`, `--dashboard-port` y `--sin-dashboard`. `--clases` filtra nombres existentes; no entrena ni crea categorías nuevas. `--conectar` solo conecta automáticamente en el modo con robot, no habilita movimientos. Este programa no tiene opción `--camara`; la LifeCam se selecciona automáticamente.
+El programa principal acepta `--modelo RUTA`, `--clases clase1,clase2`, `--nombre NOMBRE_BLE`, `--conectar`, `--velocidad-max`, `--margen`, `--solo-vision`, `--zoom`, `--mejora-ia`, `--diagnostico`, `--dashboard-port`, `--sin-dashboard`, `--camara`, `--resolucion` y `--listar-camaras`. `--clases` filtra nombres existentes; no entrena ni crea categorías nuevas. `--conectar` solo conecta automáticamente en el modo con robot, no habilita movimientos. Sin `--camara` se elige la única cámara externa reconocida.
 
 Consulta las opciones exactas sin abrir la cámara:
 

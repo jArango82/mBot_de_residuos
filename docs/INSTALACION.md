@@ -51,7 +51,7 @@ work/venv/bin/python -c "import cv2; print(cv2.__version__); print('CSRT:', hasa
 
 Los dos últimos valores deben ser `True`. Si no lo son, consulta [Problemas](PROBLEMAS.md).
 
-Conecta una única Microsoft LifeCam y ejecuta:
+Conecta una única cámara externa reconocida (Microsoft LifeCam o el Samsung como cámara web; consulta [Cámara](USO.md#cámara-lifecam-o-samsung-galaxy)) y ejecuta:
 
 ```sh
 work/venv/bin/python outputs/vision_linea_robot.py --solo-vision

@@ -19,7 +19,7 @@ Prototipo educativo para observar una zona con una webcam, detectar posibles res
 
 ## Compatibilidad real
 
-- **Mac:** cámara y Bluetooth utilizados en el montaje original. La cámara debe identificarse como Microsoft LifeCam; no se abre la integrada como alternativa.
+- **Mac:** cámara y Bluetooth utilizados en el montaje original. La cámara externa puede ser la Microsoft LifeCam o un Samsung Galaxy usado como cámara web (modo USB o Camo); nunca se abre la integrada como alternativa. El uso con el Samsung está probado solo con simulaciones.
 - **Windows:** instrucciones para control Bluetooth. El código BLE utiliza una biblioteca compatible, pero este proyecto no se ha probado allí. La cámara de esta versión no funciona en Windows.
 - **Linux:** instrucciones para control Bluetooth con BlueZ. No probado en este proyecto. La cámara de esta versión no funciona en Linux.
 
@@ -39,6 +39,7 @@ La versión V2 está compilada y probada por software; todavía no está cargada
 4. [Estado y límites](docs/ESTADO.md): qué se verificó y qué falta.
 5. [Archivos y funcionamiento interno](docs/ARQUITECTURA.md): qué hace cada parte.
 6. [Solución de problemas](docs/PROBLEMAS.md): cámara, modelos, Bluetooth e instalación.
+7. [Recoger imágenes para entrenar](docs/ENTRENAMIENTO.md): fotos de tus residuos para un detector propio (preparación; entrenamiento pendiente).
 
 ### Inicio rápido en un Mac ya preparado
 
@@ -48,7 +49,7 @@ Desde la carpeta del proyecto:
 work/venv/bin/python outputs/vision_linea_robot.py --solo-vision
 ```
 
-También puedes abrir `outputs/Detectar_Residuos.command`. No necesita tener el robot conectado. Coloca la LifeCam fija encima de la zona y enfoca los residuos. Pulsa `t` para reiniciar la selección del borde y `q` para salir, con la ventana de cámara enfocada.
+También puedes abrir `outputs/Detectar_Residuos.command`. No necesita tener el robot conectado. Coloca la cámara (LifeCam o teléfono) fija encima de la zona y enfoca los residuos. Pulsa `t` para reiniciar la selección del borde y `q` para salir, con la ventana de cámara enfocada.
 
 ## Qué descarga GitHub
 

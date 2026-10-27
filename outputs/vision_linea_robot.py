@@ -11,8 +11,9 @@ from vision_ranger import Camera, CommandState, BluetoothGuard, WasteDetector
 from ranger_bluetooth import NOMBRE
 from vision_boundary import AutoBoundary, tape_image
 from vision_papel import PaperDetector
-from vision_residuos import merge_observations
-from vision_zoom import InspectionZoom
+from vision_residuos import merge_observations, outside_zone
+from vision_zoom import InspectionZoom, detail_sample
+from camaras_mac import camera_arg, describe, size_arg
 from vision_superres import SuperResolution
 from conteo_residuos import EventStore, SeparationCounter
 from dashboard import serve
@@ -51,6 +52,11 @@ def assess_line(reference, visible, box, side, age, speed=100, margin=20):
     clearance = float(np.min((corners-a) @ n * side))
     # Cruzar la cinta no bloquea motores. El aviso utiliza el cuerpo observado, sin reserva de frenado.
     return Decision(True, 'FUERA: aviso sonoro; manejo permitido' if clearance < -5 else 'Manejo permitido; aviso solo al salir', clearance, 0)
+
+
+def frozen_while_moving(moving_since, changed, now, limit=.6):
+    """En marcha, una imagen real cambia; si no cambia en 0,6 s la cámara está congelada."""
+    return moving_since is not None and now-moving_since > limit and now-changed > limit
 
 
 def appearance(frame, box):
@@ -94,7 +100,18 @@ def main():
     parser.add_argument('--nombre', default=NOMBRE)
     parser.add_argument('--velocidad-max', type=float, default=100)
     parser.add_argument('--margen', type=float, default=20)
+    parser.add_argument('--camara', type=camera_arg,
+                        help='Nombre (lifecam, samsung, camo) o numero de una camara externa; sin esto se elige la unica reconocida')
+    parser.add_argument('--resolucion', type=size_arg,
+                        help='Captura ANCHOxALTO, p. ej. 1920x1080. El analisis sigue a 640 px de lado mayor')
+    parser.add_argument('--listar-camaras', action='store_true', help='Mostrar las camaras que ve el Mac y salir')
+    parser.add_argument('--modelo-propio', default=str(Path(__file__).resolve().parent/'models/residuos-propio.pt'),
+                        help='Detector entrenado con tus residuos (entrenar_detector.py); se usa si existe')
+    parser.add_argument('--sin-modelo-propio', action='store_true', help='No usar el detector entrenado')
     args = parser.parse_args()
+    if args.listar_camaras:
+        print('\n'.join(describe()) or 'El Mac no ve ninguna camara.')
+        return
     if not np.isfinite(args.velocidad_max) or args.velocidad_max <= 0 or not np.isfinite(args.margen) or args.margen < 0:
         parser.error('Velocidad positiva y margen no negativo.')
     if not np.isfinite(args.zoom) or not 1 <= args.zoom <= 4:
@@ -114,14 +131,15 @@ def main():
         except OSError as exc:
             print('Dashboard: puerto ocupado. Si el panel ya está abierto, recibirá estos datos. '+str(exc), flush=True)
     try:
-        camera = Camera()
+        camera = Camera(args.camara, args.resolucion)
     except Exception:
         store.publish({'session':counter.session,'updated':time.time(),'running':False})
         if server:
             server.shutdown()
             server.server_close()
         raise
-    waste = WasteDetector(camera,args.modelo,[c.strip() for c in args.clases.split(',') if c.strip()] if args.clases else None, focus=zoom)
+    waste = WasteDetector(camera,args.modelo,[c.strip() for c in args.clases.split(',') if c.strip()] if args.clases else None, focus=zoom,
+                          custom=None if args.sin_modelo_propio else args.modelo_propio)
     paper = PaperDetector(camera, focus=zoom)
     state = CommandState()
     guard = BluetoothGuard(state, args.nombre)
@@ -139,6 +157,10 @@ def main():
     outside = False
     previous = None
     speeds = []
+    moving_since = None
+    work_shape = getattr(camera, 'work_shape', (480,640,3))
+    camera_text = getattr(camera, 'summary', lambda: camera.name)
+    ignore_zone = getattr(camera, 'ignore_zone', None)
     notice = 'Recuadro automatico. R: encerrar TODO el robot con el raton.'
     try:
         cv2.namedWindow(window, cv2.WINDOW_AUTOSIZE)
@@ -147,8 +169,8 @@ def main():
         if args.conectar and not args.solo_vision:
             guard.start()
         while True:
-            sample = camera.read()
-            frame, stamp = sample if sample else (np.zeros((480,640,3),np.uint8), 0)
+            sample = detail_sample(camera)
+            frame, full, stamp = sample if sample else (np.zeros(work_shape,np.uint8), None, 0)
             detection = tape_image(frame)
             lines = black_lines(detection, max(10,cv2.getTrackbarPos('Contraste',window))) if time.monotonic()-stamp < .3 else []
             quads = black_enclosures(detection) if time.monotonic()-stamp < .3 else []
@@ -193,6 +215,13 @@ def main():
             else:
                 exit_since = exit_frame = None
                 outside = False
+            # En marcha, una imagen real cambia. Una cámara virtual puede repetir la última si se
+            # corta el teléfono: tras 0,6 s de pasos sin ningún cambio se detiene el robot.
+            stepping = armed and command in 'wasd' and now < until+.3
+            moving_since = (moving_since or now) if stepping else None
+            if frozen_while_moving(moving_since,getattr(camera,'changed',now),now):
+                armed, command, until, moving_since = False, 'x', 0, None
+                notice = 'Imagen sin cambios con el robot en marcha: detenido. Revisa la camara.'
             if not decision.safe or not guard.connected:
                 armed, command, until = False, 'x', 0
             state.set(decision.safe,armed,command,until,outside)
@@ -213,10 +242,16 @@ def main():
             waste_boxes,waste_stamp = waste.latest_details
             observations=[]
             if now-waste_stamp < 1:
-                observations=[(b,n,c,a+now-waste_stamp) for b,n,c,a in waste_boxes
-                              if not n.startswith('papel')]
+                observations=outside_zone([(b,n,c,a+now-waste_stamp) for b,n,c,a in waste_boxes
+                                           if not n.startswith('papel')],ignore_zone,frame.shape)
             if now-stamp < .3:
-                observations=merge_observations(observations,[(b,n,c,a+now-stamp) for b,n,c,a in paper.read(frame,stamp)])
+                special=[(b,n,c,a+now-stamp) for b,n,c,a in paper.read(frame,stamp)]
+                observations=merge_observations(observations,outside_zone(special,ignore_zone,frame.shape))
+            own_boxes,own_stamp = getattr(waste,'custom_details',([],0))
+            if now-own_stamp < 1:
+                # El detector entrenado con estos residuos tiene prioridad sobre los genéricos donde coinciden.
+                own=[(b,n,c,a+now-own_stamp) for b,n,c,a in own_boxes]
+                observations=merge_observations(observations,outside_zone(own,ignore_zone,frame.shape))
             objects = []
             if now-stamp < .3:
                 for coordinates,name,confidence,observation_age in observations:
@@ -255,7 +290,7 @@ def main():
                     'Movimiento: '+('HABILITADO' if armed else 'BLOQUEADO'),
                     'Cinta automatica | R: robot | C: Bluetooth | E: habilitar pasos',
                     'T: reiniciar cinta | N: reiniciar todo | Espacio: parar | Q: salir',
-                    notice,'Camara: '+camera.name]
+                    notice,'Camara: '+camera_text()]
             if args.solo_vision:
                 zone_status=('Recuadro automatico activo' if boundary is not None and visible
                              else 'Buscando recuadro; deteccion de objetos activa')
@@ -263,7 +298,7 @@ def main():
                       'Envases, latas, papel, carton, bolsas y restos de comida',
                       zone_status,'Morado: posible residuo | Amarillo: por identificar (no se cuenta)',
                       waste.status+' | '+paper.status,'T: reiniciar recuadro | Q: salir',
-                      enhancer.status,'Camara: '+camera.name]
+                      enhancer.status,'Camara: '+camera_text()]
             else:
                 rows[3]+=f' | Posibles residuos: {len(countable_objects)}'
                 rows[6]=waste.status
@@ -272,6 +307,7 @@ def main():
                 store.publish({'session':counter.session,'updated':time.time(),'running':True,
                     'boundary':boundary.tolist() if boundary is not None else None,'visible':bool(visible),
                     'robot_box':list(box) if box is not None else None,'objects':countable_objects,
+                    'frame_size':[int(frame.shape[1]),int(frame.shape[0])],
                     'unclassified_objects':[o for o in objects if not o['countable']],
                     'outside':bool(outside),'camera_age':float(now-stamp),'connected':bool(guard.connected),'border_status':border_status,
                     'bluetooth':guard.status,'waste_status':waste.status,'paper_status':paper.status})
@@ -280,13 +316,16 @@ def main():
                 if args.solo_vision and i == 0:
                     color = (80,240,80) if objects else (230,230,230)
                 cv2.putText(panel,row[:92],(10,21+i*24),cv2.FONT_HERSHEY_SIMPLEX,.40,color,1,cv2.LINE_AA)
-            view = np.vstack([zoom.render(view),panel])
+            view = np.vstack([zoom.render(view,full,frame),panel])
             cv2.imshow(window,view)
             if diagnostic and now-last_saved > 1:
                 cv2.imwrite(str(diagnostic/'camara.jpg'),frame)
                 cv2.imwrite(str(diagnostic/'vista.jpg'),view)
                 (diagnostic/'estado.json').write_text(json.dumps({
-                    'time':time.time(),'camera':camera.name,'line_confirmed':reference is not None or boundary is not None,
+                    'time':time.time(),'camera':camera_text(),
+                    'camera_size':list(getattr(camera,'size',frame.shape[1::-1])),
+                    'analysis_size':[int(frame.shape[1]),int(frame.shape[0])],
+                    'unchanged_seconds':time.monotonic()-getattr(camera,'changed',time.monotonic()),'line_confirmed':reference is not None or boundary is not None,
                     'detected_lines':len(lines),'rectangle_detected':candidate is not None,
                     'rectangle_confirmed':boundary is not None,'border_message':border_status,
                     'line_visible':bool(visible),'robot_box':box,'safe':decision.safe,

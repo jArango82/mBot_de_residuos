@@ -10,8 +10,9 @@ from serial.tools import list_ports
 class Ranger:
     def __init__(self, port=None):
         if port is None:
+            from actualizar_ranger import PHONE_VIDS
             ports = [p.device for p in list_ports.comports()
-                     if 'usbserial' in p.device or 'usbmodem' in p.device]
+                     if ('usbserial' in p.device or 'usbmodem' in p.device) and p.vid not in PHONE_VIDS]
             if len(ports) != 1:
                 raise RuntimeError('Indica --puerto. Disponibles: ' + ', '.join(p.device for p in list_ports.comports()))
             port = ports[0]

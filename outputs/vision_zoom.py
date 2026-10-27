@@ -76,7 +76,9 @@ class InspectionZoom:
         with self.lock:
             self.center = center
 
-    def render(self, image):
+    def render(self, image, detail=None, plain=None):
+        """image: vista anotada. Con detail (original de más resolución) y plain (análisis sin
+        anotar), la ampliación usa píxeles reales y se le superponen solo las anotaciones."""
         h, w = image.shape[:2]
         region = self.region(image.shape)
         mini = None
@@ -85,10 +87,23 @@ class InspectionZoom:
             region = (0, 0, w, h)
         else:
             x1, y1, x2, y2 = region
-            crop = image[y1:y2, x1:x2]
+            sharp = detail is not None and plain is not None and detail.shape[1] > w
+            if sharp:
+                dx1, dy1, dx2, dy2 = self.region(detail.shape)
+                crop = detail[dy1:dy2, dx1:dx2]
+            else:
+                crop = image[y1:y2, x1:x2]
             if self.enhancer is not None and self.enhancer.enabled:
-                crop = self.enhancer.enhance(crop)
-            view = cv2.resize(crop, (w, h), interpolation=cv2.INTER_LINEAR)
+                if crop.shape[1] < w:
+                    crop = self.enhancer.enhance(crop)
+                else:
+                    self.enhancer.status = 'IA innecesaria: el recorte ya tiene resolucion real | I: apagar'
+            view = cv2.resize(crop, (w, h), interpolation=cv2.INTER_AREA if crop.shape[1] > w else cv2.INTER_LINEAR)
+            if sharp:
+                marks = image[y1:y2, x1:x2]
+                drawn = np.any(marks != plain[y1:y2, x1:x2], axis=2).astype(np.uint8)
+                drawn = cv2.resize(drawn, (w, h), interpolation=cv2.INTER_NEAREST).astype(bool)
+                view[drawn] = cv2.resize(marks, (w, h), interpolation=cv2.INTER_NEAREST)[drawn]
             mw = min(140, w // 4)
             mh = round(mw * h / w)
             mx, my = w - mw - 8, 8
@@ -110,6 +125,21 @@ class InspectionZoom:
         cv2.putText(bar, f'{level:.2f}x | Clic: centrar | 0: volver', (322,25),
                     cv2.FONT_HERSHEY_SIMPLEX, .40, (230,230,230), 1, cv2.LINE_AA)
         return np.vstack([view, bar])
+
+
+def detail_sample(camera):
+    """(análisis, original, instante). Sin cámara de alta resolución, ambas son la misma."""
+    if hasattr(camera, 'read_detail'):
+        return camera.read_detail()
+    sample = camera.read()
+    return None if sample is None else (sample[0], sample[0], sample[1])
+
+
+def to_work(items, scale):
+    """Pasa cajas de la imagen original a la imagen de análisis."""
+    if scale == 1:
+        return list(items)
+    return [(np.asarray(box, float) / scale, *rest) for box, *rest in items]
 
 
 def restore_crop(items, region, shape):

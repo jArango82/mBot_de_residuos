@@ -12,7 +12,7 @@
 
 ## Flujo general
 
-La LifeCam entrega imágenes a la clase `Camera`. El programa principal detecta la cinta y sigue el cuerpo del robot. En paralelo se ejecutan los detectores de objetos y papel para que la inferencia no detenga la vigilancia del borde. Los objetos se muestran en pantalla; no alimentan un navegador autónomo.
+La cámara externa (LifeCam o teléfono) entrega imágenes a la clase `Camera`, que las reduce a 640 px de lado mayor para el análisis y conserva la original para el zoom y los detectores del recorte. El programa principal detecta la cinta y sigue el cuerpo del robot. En paralelo se ejecutan los detectores de objetos y papel para que la inferencia no detenga la vigilancia del borde. Los objetos se muestran en pantalla; no alimentan un navegador autónomo.
 
 Cuando el usuario solicita un paso y la geometría lo permite, `BluetoothGuard` envía letras al receptor del Ranger. La proximidad/cruce del borde no bloquea movimiento y el aviso no frena. Si la imagen pierde frescura o se pierde el seguimiento, el controlador solicita parada silenciosa. La placa mantiene además su temporizador independiente por ausencia de órdenes.
 
@@ -27,12 +27,16 @@ Todos los archivos siguientes están en `outputs/`:
 - `vision_ranger.py`: aplicación anterior con ArUco y YOLO11n. `Iniciar_Vision.command` ahora ejecuta la aplicación actual sin etiqueta. El módulo también contiene componentes compartidos de cámara, detección y control BLE utilizados por la aplicación actual.
 - `ranger_bluetooth.py` y `Iniciar_Bluetooth.command`: consola BLE y clase reutilizable `RangerBluetooth`.
 - `ranger.py` y `Iniciar_Ranger.command`: consola USB histórica, dependencia adicional `pyserial`.
+- `entrenar_detector.py`: crea el conjunto en formato YOLO a partir de `work/dataset`, entrena YOLO11n en la gráfica del Mac, guarda `models/residuos-propio.pt` y evalúa con una sesión reservada.
+- `recoger_imagenes.py` y `Recoger_Imagenes.command`: captura fotos originales de la cámara externa en `work/dataset/imagenes/<sesión>/` para entrenar un detector. No guarda fotos negras ni congeladas y, en automático, tampoco movidas. Ver [Entrenamiento](ENTRENAMIENTO.md).
 
 Los `.command` son accesos de macOS, no ejecutables de Windows/Linux.
 
 ## Módulos internos
 
-- `camaras_mac.py`: enumera dispositivos AVFoundation en el orden de OpenCV y exige una LifeCam externa.
+- `camaras_mac.py`: enumera dispositivos AVFoundation en el orden de OpenCV, reconoce LifeCam, Samsung y Camo, permite elegir con `--camara` y rechaza siempre la cámara integrada.
+- `vision_zoom.py`: zoom digital y conversión de cajas entre recorte, imagen original e imagen de análisis.
+- `vision_superres.py`: FSRCNN ×2 opcional, solo para la vista ampliada.
 - `vision_core.py`: detección geométrica de líneas/recuadros, ArUco y cálculos de protección.
 - `vision_boundary.py`: estabilización, confirmación y seguimiento de evidencia del borde; ajuste de imagen oscura.
 - `vision_residuos.py`: agrupación de etiquetas y persistencia temporal de cajas. Las detecciones normales toleran interrupciones de hasta 0.7 s.
@@ -43,7 +47,8 @@ Los `.command` son accesos de macOS, no ejecutables de Windows/Linux.
 - `models/residuos-categorias.json`: 24 descripciones en inglés y sus etiquetas en español; varias se agrupan bajo el mismo nombre. El papel de la aplicación actual se muestra mediante su detector dedicado, no por aceptar directamente las etiquetas de papel de YOLO.
 - `models/residuos-world-small.pt`: detector predeterminado, generado a partir de YOLO-World-S y las descripciones configuradas.
 - `models/yolov8s-worldv2.pt`: base descargada para prepararlo.
-- `models/yolo11n.pt`: detector del modo antiguo, con clases COCO.
+- `models/yolo11n.pt`: detector del modo antiguo, con clases COCO; también es el punto de partida del detector propio.
+- `models/residuos-propio.pt`: detector entrenado con los residuos del usuario (local, no se sube). `WasteDetector` lo ejecuta en su hilo, el único que usa la gráfica.
 - `models/clip/ViT-B-32.pt`: codificador utilizado en preparación y verificación de papel.
 - `models/grounding-dino-tiny/`: pesos y archivos de configuración/tokenización del detector de papel. Los JSON y vocabulario se versionan; los pesos no.
 - `preparar_modelos.py`: descarga a archivos `.partial`, verifica el hash de CLIP y genera `residuos-world-small.pt`. Reutiliza archivos existentes; para los otros modelos no hace validación criptográfica de contenido. La revisión de DINO y el commit de CLIP están fijados en código/requisitos.

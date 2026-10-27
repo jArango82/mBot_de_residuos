@@ -163,7 +163,7 @@ class PipelineTests(unittest.TestCase):
             from contextlib import ExitStack,redirect_stdout
             import io
             with ExitStack() as stack:
-                for name,value in [('Camera',lambda:camera),('WasteDetector',Waste),('PaperDetector',Paper),
+                for name,value in [('Camera',lambda *a:camera),('WasteDetector',Waste),('PaperDetector',Paper),
                                    ('AutoBoundary',Boundary),('EventStore',lambda:store),('black_lines',lambda *a:[]),
                                    ('black_enclosures',lambda *a:[AREA])]:
                     stack.enter_context(patch.object(app,name,value))

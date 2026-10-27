@@ -4,7 +4,24 @@ import threading
 import time
 import cv2
 import numpy as np
-from vision_residuos import overlap
+from vision_residuos import MODEL_LOCK, overlap
+from vision_zoom import detail_sample, restore_crop, to_work
+
+
+# «a bottle» no se acepta aquí: da a las botellas una descripción mejor que «envoltura» y las
+# reconoce el detector general. «a cardboard box» sí se acepta: YOLO-World apenas ve cajas pequeñas
+# (cajas de medicamento con 4-23 %), mientras que DINO las puntúa con 36-77 %.
+PROMPT='a crumpled paper. a tissue. a candy wrapper. a crumpled plastic wrapper. a snack bag. a bottle. a cardboard box.'
+ROUND_PROMPT='a bottle cap. a roll of adhesive tape. a cardboard box.'
+# DINO y CLIP confunden papel blanco arrugado con un envoltorio. En las pruebas, la envoltura real
+# tenía saturación media 43 y el papel/servilletas 3-15: sin color se verifica como papel.
+COLORLESS=25
+
+
+def colorless(image, box):
+    x1,y1,x2,y2=(int(v) for v in box)
+    crop=image[max(0,y1):max(0,y2),max(0,x1):max(0,x2)]
+    return crop.size>0 and float(cv2.cvtColor(crop,cv2.COLOR_BGR2HSV)[...,1].mean())<COLORLESS
 
 
 class PaperVerifier:
@@ -29,7 +46,8 @@ class PaperVerifier:
     wrapper_descriptions=[
         'a crumpled candy wrapper','a plastic food wrapper','a shiny snack wrapper',
         'a piece of paper or a tissue','a plastic bottle','an aluminum can','a chair or furniture',
-        'a brick floor or tiles','black adhesive tape on the floor','a hand','a shoe','a leaf','an unknown object']
+        'a brick floor or tiles','black adhesive tape on the floor','a hand','a shoe','a leaf',
+        'a small cardboard box','a medicine box','an unknown object']
 
     def wrapper_features(self):
         if not hasattr(self,'_wrapper_features'):
@@ -75,6 +93,29 @@ class PaperVerifier:
         return paper>=.25 and paper-other>=.005,paper,other
 
 
+def phrase_result(logits,pred_boxes,tokens,shape,threshold=.28):
+    """Cada caja recibe solo la descripción con mayor puntuación. La salida estándar de DINO junta
+    todas las que superan el umbral («a crumpled paper a candy wrapper…») y el papel acababa como
+    envoltura porque se buscaba «wrapper» primero."""
+    import torch
+    spans,current=[],[]
+    for i,token in enumerate(tokens):
+        if token in ('[CLS]','[SEP]','[PAD]'): continue
+        if token=='.':
+            if current: spans.append(current)
+            current=[]
+        else: current.append(i)
+    if current: spans.append(current)
+    names=[' '.join(tokens[i] for i in span).replace(' ##','') for span in spans]
+    probs=logits.sigmoid()
+    scores,best=torch.stack([probs[:,span].max(dim=1).values for span in spans],dim=1).max(dim=1)
+    keep=scores>threshold
+    h,w=shape[:2]
+    cx,cy,bw,bh=pred_boxes[keep].unbind(-1)
+    boxes=torch.stack([(cx-bw/2)*w,(cy-bh/2)*h,(cx+bw/2)*w,(cy+bh/2)*h],dim=-1)
+    return {'boxes':boxes,'scores':scores[keep],'text_labels':[names[i] for i in best[keep].tolist()]}
+
+
 def paper_boxes(result,shape):
     height,width=shape[:2]
     found=[]
@@ -109,17 +150,18 @@ def restore_box(box, shape, turns):
     return result
 
 
-def small_candidates(result, shape):
+def small_candidates(result, shape, min_side=10):
     h,w=shape[:2];found=[]
     for box,label,score in zip(result['boxes'],result['text_labels'],result['scores']):
         score=float(score);label=label.lower()
         kind=('envoltura' if ('wrapper' in label or 'snack bag' in label) else
               'papel / servilleta' if any(word in label for word in ('paper','tissue','napkin')) else
+              'caja de carton' if 'cardboard' in label else
               'objeto por identificar' if ('cap' in label or 'roll' in label) else None)
-        if kind is None or score < ({'envoltura':.28,'objeto por identificar':.35}.get(kind,.32)): continue
+        if kind is None or score < ({'envoltura':.28,'objeto por identificar':.35,'caja de carton':.35}.get(kind,.32)): continue
         b=np.asarray(box.cpu() if hasattr(box,'cpu') else box,float)
-        if min(b[2:]-b[:2])<10 or np.prod(b[2:]-b[:2])>w*h*.2: continue
-        if kind in ('envoltura','objeto por identificar') and (b[0]<2 or b[1]<2 or b[2]>w-2 or b[3]>h-2): continue
+        if min(b[2:]-b[:2])<min_side or np.prod(b[2:]-b[:2])>w*h*.2: continue
+        if kind in ('envoltura','objeto por identificar','caja de carton') and (b[0]<2 or b[1]<2 or b[2]>w-2 or b[3]>h-2): continue
         b[[0,2]]=np.clip(b[[0,2]],0,w-1);b[[1,3]]=np.clip(b[[1,3]],0,h-1)
         found.append((b,kind,score))
     # Evitar verificar muchas cajas anidadas del mismo candidato.
@@ -140,24 +182,49 @@ class SmallWasteRecognizer:
         self.model=AutoModelForZeroShotObjectDetection.from_pretrained(path,local_files_only=True).eval()
         self.verifier=PaperVerifier()
 
-    def detect(self,frame,turns=0,round_objects=False):
+    def detect(self,frame,turns=0,round_objects=False,min_side=10):
         view=np.rot90(frame,turns).copy()
         inputs=self.processor(images=cv2.cvtColor(view,cv2.COLOR_BGR2RGB),
-            text=('a bottle cap. a roll of adhesive tape.' if round_objects else
-                  'a crumpled paper. a tissue. a candy wrapper. a crumpled plastic wrapper. a snack bag. a bottle.'),
+            text=ROUND_PROMPT if round_objects else PROMPT,
             return_tensors='pt',size={'shortest_edge':512,'longest_edge':768})
         with self.torch.inference_mode(): outputs=self.model(**inputs)
-        result=self.processor.post_process_grounded_object_detection(outputs,inputs.input_ids,
-            threshold=.28,text_threshold=.25,target_sizes=[view.shape[:2]])[0]
+        tokens=self.processor.tokenizer.convert_ids_to_tokens(inputs.input_ids[0])
+        result=phrase_result(outputs.logits[0],outputs.pred_boxes[0],tokens,view.shape)
         verified=[]
-        for box,name,score in small_candidates(result,view.shape):
+        for box,name,score in small_candidates(result,view.shape,min_side):
             original=restore_box(box,frame.shape,turns)
             # Verificar antes de redondear/remapear conserva el mismo recorte en todos los giros.
-            valid=(True if name=='objeto por identificar' else
-                   self.verifier.check_wrapper(view,box)[0] if name=='envoltura'
-                   else self.verifier.check(frame,original)[0])
+            if name=='envoltura' and colorless(view,box):
+                # Algo arrugado y sin color: se nombra papel si pasa cualquiera de las dos verificaciones
+                # (CLIP suele ver la servilleta como envoltorio y la verificación de papel la rechaza).
+                name='papel / servilleta'
+                valid=self.verifier.check_wrapper(view,box)[0] or self.verifier.check(frame,original)[0]
+            else:
+                valid=(True if name in ('objeto por identificar','caja de carton') else
+                       self.verifier.check_wrapper(view,box)[0] if name=='envoltura'
+                       else self.verifier.check(frame,original)[0])
             if valid: verified.append((original,name,score))
         return verified
+
+
+# Un objeto quieto y con el mismo aspecto se sigue mostrando entre reconocimientos hasta 20 s, en vez
+# de desaparecer a los 4-6 s. La edad del reconocimiento se conserva: el conteo exige uno reciente.
+STILL_LIMIT=20
+
+
+def patch_of(frame, box):
+    x1,y1,x2,y2=(int(v) for v in box)
+    crop=frame[max(0,y1):max(0,y2),max(0,x1):max(0,x2)]
+    if crop.size==0 or min(crop.shape[:2])<8:
+        return None
+    return cv2.resize(cv2.cvtColor(crop,cv2.COLOR_BGR2GRAY),(32,32),interpolation=cv2.INTER_AREA)
+
+
+def same_look(reference, current, minimum=.6):
+    """Textura parecida al recorte reconocido. Si el objeto se retira, el suelo ya no se le parece."""
+    if reference is None or current is None or reference.std()<3 or current.std()<3:
+        return False
+    return float(cv2.matchTemplate(current,reference,cv2.TM_CCOEFF_NORMED)[0,0])>=minimum
 
 
 class PaperDetector:
@@ -175,30 +242,34 @@ class PaperDetector:
 
     def run(self):
         try:
-            recognizer=SmallWasteRecognizer()
-            history=[];previous=[];previous_stamp=0
+            with MODEL_LOCK:
+                recognizer=SmallWasteRecognizer()
+            history=[]
             search={False:[0,0],True:[0,0]};cycle=0
             last_stamp=None
             self.status='Papel y envolturas: buscando con varias orientaciones'
             while not self.stop.is_set():
-                sample=self.camera.read()
-                if sample is None or sample[1]==last_stamp:
+                sample=detail_sample(self.camera)
+                if sample is None or sample[2]==last_stamp:
                     self.stop.wait(.05);continue
-                frame,stamp=sample;last_stamp=stamp
+                frame,full,stamp=sample;last_stamp=stamp
+                # La imagen original (teléfono) da más detalle; las cajas vuelven a la de análisis.
+                scale=full.shape[1]/frame.shape[1];min_side=10*scale
                 # Escanear giros si falta la envoltura y conservar la orientación que funciona.
-                from vision_zoom import restore_crop
-                region=self.focus.region(frame.shape) if self.focus is not None else None
-                # Priorizar el detalle y revisar también la imagen completa cada cuatro análisis.
+                region=self.focus.region(full.shape) if self.focus is not None else None
+                # Con zoom se alterna recorte e imagen completa: lo que queda fuera del zoom también se
+                # revisa (antes solo 1 de cada 4 análisis, y únicamente buscando objetos redondos).
                 round_objects=cycle%4==3
-                focused=region is not None and not round_objects
+                focused=region is not None and cycle%2==1 and not round_objects
                 cycle+=1
                 preferred,misses=search[focused]
                 turns=(preferred+misses)%4
                 if focused:
                     x1,y1,x2,y2=region
-                    verified=restore_crop(recognizer.detect(frame[y1:y2,x1:x2],turns),region,frame.shape)
+                    verified=restore_crop(recognizer.detect(full[y1:y2,x1:x2],turns,min_side=min_side),region,full.shape)
                 else:
-                    verified=recognizer.detect(frame,0 if round_objects else turns,round_objects=round_objects)
+                    verified=recognizer.detect(full,0 if round_objects else turns,round_objects=round_objects,min_side=min_side)
+                verified=to_work(verified,scale)
                 if any(n=='envoltura' for _,n,_ in verified): preferred=turns;misses=0
                 else: misses+=1
                 if not round_objects: search[focused]=[preferred,misses]
@@ -206,20 +277,20 @@ class PaperDetector:
                 confirmed=[]
                 for box,name,score in verified:
                     limit=12 if name=='objeto por identificar' else 6
-                    prior=([item for t,items in history if stamp-t<limit for item in items]
-                           if name in ('envoltura','objeto por identificar') else
-                           (previous if stamp-previous_stamp<6 else []))
+                    # Basta otro reconocimiento en el mismo sitio dentro del plazo, no en el análisis
+                    # inmediatamente anterior: entre medias se gira la imagen o se buscan objetos redondos.
+                    prior=[item for t,items in history if stamp-t<limit for item in items]
                     if any(oldname==name and overlap(box,oldbox)>.35 for oldbox,oldname,_ in prior):
                         confirmed.append((box,name,score))
-                history.append((stamp,verified));previous,previous_stamp=verified,stamp
+                history.append((stamp,verified))
                 self.latest=(confirmed,frame,stamp)
-                self.status='Papel/envolturas + objetos por identificar'
+                self.status='Papel/envolturas/cajas + objetos por identificar'
                 self.stop.wait(.1)
         except Exception as exc:
             self.status='Papel/envolturas no disponible: '+str(exc)
 
     @staticmethod
-    def lifetime(name): return {'envoltura':6,'objeto por identificar':8}.get(name,4)
+    def lifetime(name): return {'objeto por identificar':8}.get(name,6)
 
     def read(self,frame,stamp):
         result=self.latest
@@ -235,13 +306,22 @@ class PaperDetector:
                 x1,y1,x2,y2=box.astype(int)
                 tracker=cv2.TrackerCSRT_create()
                 tracker.init(source,(x1,y1,x2-x1,y2-y1))
-                self.trackers.append((tracker,score,source_stamp,(x2-x1)*(y2-y1),box,name))
+                anchor=(patch_of(source,box),np.asarray(box,float))
+                self.trackers.append((tracker,score,source_stamp,(x2-x1)*(y2-y1),box,name,anchor))
         if stamp!=self.frame_stamp:
             self.frame_stamp=stamp;retained=[]
-            for tracker,score,observed,area,oldbox,name in self.trackers:
-                if not 0 <= stamp-observed < self.lifetime(name): continue
+            for tracker,score,observed,area,oldbox,name,anchor in self.trackers:
+                age=stamp-observed
+                if not 0 <= age < max(self.lifetime(name),STILL_LIMIT if anchor else 0): continue
                 ok,(x,y,w,h)=tracker.update(frame)
-                if ok and .6*area < w*h < 1.6*area and x>=0 and y>=0 and x+w<frame.shape[1] and y+h<frame.shape[0]:
-                    retained.append((tracker,score,observed,area,np.array([x,y,x+w,y+h]),name))
+                box=np.array([x,y,x+w,y+h])
+                followed=ok and .6*area < w*h < 1.6*area and x>=0 and y>=0 and x+w<frame.shape[1] and y+h<frame.shape[0]
+                if age>=self.lifetime(name) or not followed:
+                    # Objeto quieto: se comprueba en el sitio donde se reconoció, porque el seguimiento
+                    # resbala sobre objetos sin textura (servilleta blanca sobre suelo claro).
+                    if not (anchor and same_look(anchor[0],patch_of(frame,anchor[1]))):
+                        continue
+                    box=anchor[1].copy()
+                retained.append((tracker,score,observed,area,box,name,anchor))
             self.trackers=retained
-        return [(b.astype(int).tolist(),name,s,stamp-t) for _,s,t,_,b,name in self.trackers]
+        return [(b.astype(int).tolist(),name,s,stamp-t) for _,s,t,_,b,name,_ in self.trackers]

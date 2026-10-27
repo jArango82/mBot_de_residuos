@@ -16,14 +16,48 @@ import numpy as np
 from vision_core import (assess, black_enclosures, calibrate_body,
                         marker_pose, same_boundary)
 from ranger_bluetooth import RangerBluetooth, NOMBRE
-from camaras_mac import select_external
+from camaras_mac import WATERMARKS, camera_arg, native_size, opencv_devices, profile, select_external
 
 WINDOW = 'Ranger | Vision y limite'
+# Lado mayor de la imagen de análisis. Borde, robot, conteo y dashboard se ajustaron a 640 px:
+# una cámara de más resolución se reduce aquí y su detalle se usa solo para zoom y detectores.
+WORK_SIZE = 640
+
+
+def work_size(width, height, longest=WORK_SIZE):
+    scale = max(width, height) / longest
+    return (width, height) if scale <= 1 else (round(width / scale), round(height / scale))
+
+
+def capture_size(kind, native, requested=None, longest=1280):
+    """LifeCam a 640x480 como siempre; otras con su proporción real, hasta 1280 px."""
+    if requested:
+        return requested
+    if kind == 'LifeCam':
+        return 640, 480
+    if native is None:
+        return 1280, 720
+    scale = max(native) / longest
+    return native if scale <= 1 else (round(native[0] / scale), round(native[1] / scale))
+
+
+def black_bars(frame):
+    """Bandas negras uniformes: la proporción pedida no coincide y podrían parecer cinta."""
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape
+    if gray[h // 4:3 * h // 4, w // 4:3 * w // 4].max() < 12:
+        return False  # Imagen todavía negra al arrancar: no indica bandas.
+    rows, cols = max(2, h // 50), max(2, w // 50)
+    return bool((gray[:rows].max() < 12 and gray[-rows:].max() < 12) or
+                (gray[:, :cols].max() < 12 and gray[:, -cols:].max() < 12))
 
 
 class Camera:
-    def __init__(self, requested=None):
+    def __init__(self, requested=None, resolution=None):
         import AVFoundation as av
+        # Elegir antes del permiso: si falta la cámara externa, no se pide acceso a ninguna.
+        devices = opencv_devices()
+        index, self.name, self.device_id = select_external(requested, devices)
         status = av.AVCaptureDevice.authorizationStatusForMediaType_(av.AVMediaTypeVideo)
         if status == 0:
             ready = threading.Event()
@@ -34,41 +68,96 @@ class Camera:
             status = av.AVCaptureDevice.authorizationStatusForMediaType_(av.AVMediaTypeVideo)
         if status != 3:
             raise RuntimeError('Activa el permiso de Camara para la app que ejecuta Python y vuelve a abrir el programa.')
-        index, self.name, self.device_id = select_external(requested)
+        kind = profile(devices[index])
+        wanted = capture_size(kind, native_size(devices[index]), resolution)
+        # Zona de la imagen que se ignora al detectar (marca de agua de la cámara virtual).
+        self.ignore_zone = WATERMARKS.get(kind)
         self.capture = cv2.VideoCapture(index, cv2.CAP_AVFOUNDATION)
-        # Una conexión/desconexión durante la apertura puede desplazar índices.
         try:
+            # Una conexión/desconexión durante la apertura puede desplazar índices.
             if select_external(index)[2] != self.device_id:
                 raise RuntimeError('Cambio la lista de camaras. Vuelve a abrir el programa.')
+            self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, wanted[0])
+            self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, wanted[1])
+            if not self.capture.isOpened():
+                raise RuntimeError('No se pudo abrir la webcam. Revisa el permiso de camara.')
+            first = self.first_frame()
         except Exception:
             self.capture.release()
             raise
-        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        if not self.capture.isOpened():
-            raise RuntimeError('No se pudo abrir la webcam. Revisa el permiso de camara.')
-        print(f'Camara: {self.name}; OpenCV={index}; ID={self.device_id}', flush=True)
+        self.size = (first.shape[1], first.shape[0])
+        self.work_size = work_size(*self.size)
+        self.work_shape = (self.work_size[1], self.work_size[0], 3)
+        self.scale = self.size[0] / self.work_size[0]
+        print(f'Camara: {self.name}; OpenCV={index}; ID={self.device_id}; '
+              f'imagen {self.size[0]}x{self.size[1]}; analisis {self.work_size[0]}x{self.work_size[1]}', flush=True)
+        if self.size != tuple(wanted):
+            print(f'Aviso: se pidio {wanted[0]}x{wanted[1]} y la camara entrega otro tamano.', flush=True)
+        if self.size[1] > self.size[0]:
+            print('Aviso: imagen vertical. Gira el telefono a horizontal para ver todo el recuadro.', flush=True)
         self.latest = None
+        self.full = None
+        self.previous = first
+        self.changed = self.started = time.monotonic()
+        self.bars_checked = False
+        self.fps = 0.
         self.lock = threading.Lock()
         self.stop = threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
 
+    def first_frame(self, timeout=5):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            ok, frame = self.capture.read()
+            if ok and frame is not None and frame.size:
+                return frame
+            time.sleep(.05)
+        raise RuntimeError('La camara no entrega imagen. Revisa el telefono o su aplicacion de camara web.')
+
     def run(self):
         try:
             while not self.stop.is_set():
-                ok, frame = self.capture.read()
-                if not ok:
+                ok, full = self.capture.read()
+                if not ok or full is None:
                     time.sleep(.02)
                     continue
+                now = time.monotonic()
+                # Una cámara virtual (Camo) puede repetir la última imagen si se corta el teléfono.
+                if (full is self.previous or full.shape != self.previous.shape or
+                        not np.array_equal(full, self.previous)):
+                    self.changed = now
+                self.previous = full
+                # Las cámaras virtuales envían imágenes de arranque: revisar pasado un segundo.
+                if not self.bars_checked and now - self.started > 1:
+                    self.bars_checked = True
+                    if black_bars(full):
+                        print('Aviso: la imagen tiene bandas negras; pueden confundirse con cinta. '
+                              'Usa --resolucion con la proporcion de la camara.', flush=True)
+                frame = (full if full.shape[1::-1] == self.work_size else
+                         cv2.resize(full, self.work_size, interpolation=cv2.INTER_AREA))
                 with self.lock:
-                    self.latest = (frame, time.monotonic())
+                    if self.latest is not None:
+                        self.fps = .9 * self.fps + .1 / max(now - self.latest[1], 1e-3)
+                    self.latest = (frame, now)
+                    self.full = full
         finally:
             self.capture.release()
 
     def read(self):
         with self.lock:
             return self.latest
+
+    def read_detail(self):
+        """Imagen de análisis y la original de la misma captura, para zoom y detectores."""
+        with self.lock:
+            return None if self.latest is None else (self.latest[0], self.full, self.latest[1])
+
+    def summary(self):
+        text = f'{self.name} | {self.size[0]}x{self.size[1]}'
+        if self.size != self.work_size:
+            text += f'>{self.work_size[0]}x{self.work_size[1]}'
+        return text + f' | {self.fps:.0f} fps'
 
     def close(self):
         self.stop.set()
@@ -77,13 +166,17 @@ class Camera:
 
 class WasteDetector:
     """La inferencia es independiente: nunca retrasa la protección del borde."""
-    def __init__(self, camera, model, classes, focus=None):
+    def __init__(self, camera, model, classes, focus=None, custom=None):
         self.camera = camera
         self.focus = focus
         self.model_path = model
         self.classes = classes
+        # Modelo entrenado con los residuos del usuario (opcional). Va en este mismo hilo: es el único
+        # que usa la gráfica del Mac.
+        self.custom_path = custom
         self.latest = ([], 0)
         self.latest_details = ([], 0)
+        self.custom_details = ([], 0)
         self.status = 'Cargando detector de objetos...'
         self.stop = threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -95,40 +188,73 @@ class WasteDetector:
             settings.update({'sync': False})
             if not Path(self.model_path).is_file():
                 raise RuntimeError('Falta el modelo local: ' + self.model_path)
-            model = YOLO(self.model_path)
-            from vision_residuos import StableObjects, category, merge_observations
-            from vision_zoom import restore_crop
+            from vision_residuos import KEEP_CONF, MODEL_LOCK, StableObjects, category, merge_observations, small_enough
+            from vision_zoom import detail_sample, restore_crop, to_work
+            with MODEL_LOCK:
+                model = YOLO(self.model_path)
+                classes = self.classes if self.classes is not None else list(model.names.values())
+                ids = [k for k, v in model.names.items() if v in classes]
+                missing = set(classes) - set(model.names.values())
+                if missing:
+                    raise RuntimeError('Modelo sin estas clases: ' + ', '.join(sorted(missing)))
+                if not ids:
+                    raise RuntimeError('No hay categorias de objetos seleccionadas.')
+                # La gráfica del Mac (MPS) da los mismos resultados unas seis veces más rápido y permite
+                # analizar la imagen del teléfono a 1280 px. Solo este hilo la usa: dos hilos a la vez
+                # en MPS cierran el programa con un error de Metal.
+                device = 'cpu'
+                try:
+                    import torch
+                    if torch.backends.mps.is_available():
+                        model.predict(np.zeros((480, 640, 3), np.uint8), imgsz=640, conf=KEEP_CONF,
+                                      classes=ids, device='mps', verbose=False)
+                        device = 'mps'
+                except Exception:
+                    model = YOLO(self.model_path)
+                if device == 'cpu':
+                    # La primera inferencia reorganiza capas: también debe ocurrir sin otra carga en curso.
+                    model.predict(np.zeros((480, 640, 3), np.uint8), imgsz=640, conf=KEEP_CONF, classes=ids,
+                                  device='cpu', verbose=False)
+                own = None
+                if self.custom_path and Path(self.custom_path).is_file():
+                    own = YOLO(self.custom_path)
+                    own.predict(np.zeros((480, 640, 3), np.uint8), imgsz=640, conf=KEEP_CONF, device=device, verbose=False)
+            def detect(image, size):
+                result = model.predict(image, imgsz=size, conf=KEEP_CONF, classes=ids, device=device, verbose=False)[0]
+                return [(b.xyxy[0].cpu().numpy(), category(model.names[int(b.cls.item())]), float(b.conf.item()))
+                        for b in result.boxes]
             stable = StableObjects()
-            classes = self.classes if self.classes is not None else list(model.names.values())
-            ids = [k for k, v in model.names.items() if v in classes]
-            missing = set(classes) - set(model.names.values())
-            if missing:
-                raise RuntimeError('Modelo sin estas clases: ' + ', '.join(sorted(missing)))
-            if not ids:
-                raise RuntimeError('No hay categorias de objetos seleccionadas.')
-            self.status = f'Detector activo: {len(ids)} categorias'
+            # Más exigente que los genéricos: sus objetos reales puntuaban 0,70-0,99 y lo que confundía en
+            # imágenes de otra cámara, 0,26-0,53. Nuevo desde 0,6; ya seguido, desde 0,3.
+            own_stable = StableObjects(new_conf=.6)
+            self.status = (f'Detector activo: {len(ids)} categorias | ' + ('GPU' if device == 'mps' else 'CPU') +
+                           (' | modelo propio' if own is not None else ''))
             last = 0
             while not self.stop.is_set():
-                sample = self.camera.read()
-                if sample is None or sample[1] == last:
+                sample = detail_sample(self.camera)
+                if sample is None or sample[2] == last:
                     self.stop.wait(.05)
                     continue
-                frame, stamp = sample
+                frame, full, stamp = sample
                 last = stamp
-                region = self.focus.region(frame.shape) if self.focus is not None else None
-                images = [frame]
+                scale = full.shape[1] / frame.shape[1]
+                # Con GPU se analiza la imagen original del teléfono (hasta 1280 px); sin ella, la de 640.
+                if device == 'mps':
+                    boxes = to_work(detect(full, min(1280, max(full.shape[:2]))), scale)
+                else:
+                    boxes = detect(frame, 640)
+                # El recorte del zoom sale de la imagen original: con el teléfono aporta detalle real.
+                region = self.focus.region(full.shape) if self.focus is not None else None
                 if region is not None:
                     x1,y1,x2,y2 = region
-                    images.append(frame[y1:y2,x1:x2])
-                results = model.predict(images, imgsz=640, conf=.24, classes=ids,
-                                        device='cpu', verbose=False)
-                groups = []
-                for result in results:
-                    groups.append([(b.xyxy[0].cpu().numpy(), category(model.names[int(b.cls.item())]),
-                                    float(b.conf.item())) for b in result.boxes])
-                boxes = groups[0]
-                if region is not None:
-                    boxes = merge_observations(boxes, restore_crop(groups[1],region,frame.shape))
+                    zoomed = restore_crop(detect(full[y1:y2,x1:x2], 640), region, full.shape)
+                    boxes = merge_observations(boxes, to_work(zoomed, scale))
+                if own is not None:
+                    # Se analiza la imagen original a 960 px, el mismo tamaño con el que se entrenó.
+                    result = own.predict(full, imgsz=960, conf=.3, device=device, verbose=False)[0]
+                    found = small_enough([(b.xyxy[0].cpu().numpy(), own.names[int(b.cls.item())], float(b.conf.item()))
+                                          for b in result.boxes], full.shape)
+                    self.custom_details = (own_stable.update(to_work(found, scale), stamp), stamp)
                 details = stable.update(boxes,stamp)
                 self.latest_details = (details,stamp)
                 self.latest = ([(b,n,c) for b,n,c,_ in details], stamp)
@@ -235,7 +361,7 @@ def marker_image():
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--camara', type=int)
+    p.add_argument('--camara', type=camera_arg, help='Nombre (lifecam, samsung, camo) o indice de una camara externa')
     p.add_argument('--nombre', default=NOMBRE)
     p.add_argument('--modelo', default=str(BASE / 'models' / 'yolo11n.pt'))
     p.add_argument('--clases', default='bottle,cup')

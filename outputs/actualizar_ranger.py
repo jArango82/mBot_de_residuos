@@ -9,6 +9,8 @@ import time
 BASE=Path(__file__).resolve().parent
 VERSION='RANGER_READY_V2_20261019'
 MBLOCK=Path('/Applications/mBlock.app/Contents/Resources/ml/v1/external/arduino')
+# Un teléfono Samsung usado como cámara puede crear un puerto serie USB: nunca es el Ranger.
+PHONE_VIDS={0x04E8}
 
 def identify(port, timeout=4):
     import serial
@@ -24,7 +26,7 @@ def identify(port, timeout=4):
 def candidates():
     from serial.tools import list_ports
     # Solo puertos USB; nunca Bluetooth virtual. La identificación de protocolo es obligatoria.
-    return [p.device for p in list_ports.comports() if p.vid is not None]
+    return [p.device for p in list_ports.comports() if p.vid is not None and p.vid not in PHONE_VIDS]
 
 def compile_firmware(root=MBLOCK):
     build=BASE.parent/'work/firmware-v2';build.mkdir(parents=True,exist_ok=True)

@@ -7,6 +7,7 @@ import time
 import cv2
 import numpy as np
 from vision_ranger import Camera
+from camaras_mac import camera_arg
 from vision_core import black_lines
 
 
@@ -14,11 +15,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--diagnostico')
     parser.add_argument('--duracion', type=float, default=0)
+    parser.add_argument('--camara', type=camera_arg, help='Nombre (lifecam, samsung, camo) o numero de una camara externa')
     args = parser.parse_args()
     diagnostic = Path(args.diagnostico) if args.diagnostico else None
     if diagnostic:
         diagnostic.mkdir(parents=True, exist_ok=True)
-    camera = Camera()
+    camera = Camera(args.camara)
     window = 'Ranger | Detectar linea negra'
     last_saved = 0
     start = time.monotonic()
