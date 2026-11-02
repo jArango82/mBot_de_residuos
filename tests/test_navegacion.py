@@ -1,6 +1,7 @@
 """Ir hacia un residuo con un robot simulado: rumbo y giro desconocidos que se aprenden moviéndose."""
 from pathlib import Path
 import math, sys, unittest
+from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'outputs'))
 import numpy as np
 from navegacion import GoToWaste, angle_diff, box_gap
@@ -103,12 +104,14 @@ SQUARE = np.array([100., 50.])   # el recuadro va de (100, 50) a (500, 450) en l
 
 
 def simulate_push(heading, rate, speed, wastes, start=(300, 250), noise=1., limit=240, lag=.06, jumps=0., axis=None,
-                  labels=None, sheets=None):
+                  labels=None, sheets=None, tracks=None):
     """Robot de 40x40 y residuos de 20x20 que se mueven al empujarlos con la parte delantera.
     jumps: px de desvío de la caja seguida que cambia de vez en cuando (seguimiento que resbala o se reinicia).
     axis: grados del eje de una lata tumbada. Empujada de punta (a menos de 30° de su eje) no rueda: el robot se le
-    sube encima y pasa por arriba. Empujada de lado, rueda delante del robot."""
-    rng=np.random.default_rng(1)
+    sube encima y pasa por arriba. Empujada de lado, rueda delante del robot.
+    tracks: grados de error de la dirección de las orugas vista en la imagen (None: no se usa). Como en las
+    grabaciones, una de cada diez sale perpendicular y otra no se ve."""
+    rng=np.random.default_rng(1); seen_tracks=np.random.default_rng(2)
     nav=GoToWaste(); x,y=start; theta=heading; t=0.; moving=None; drift=np.zeros(2)
     labels=labels or ['lata']*len(wastes)
     # Hojas: {etiqueta: (x1, y1, x2, y2) en la imagen}; el robot las recibe en coordenadas del recuadro.
@@ -127,7 +130,11 @@ def simulate_push(heading, rate, speed, wastes, start=(300, 250), noise=1., limi
             inside=bool(100<w[0]<500 and 50<w[1]<450)
             objects.append({'box':[w[0]-10,w[1]-10,w[0]+10,w[1]+10],'center':list(w),'label':label,'countable':True,'inside':inside})
         nav.sheets=goals                                   # el programa las pasa en cada imagen
-        step=nav.update(t,t,box,objects,plane)
+        line=None
+        if tracks is not None:
+            luck=seen_tracks.random()
+            line=None if luck<.1 else ((theta+seen_tracks.normal(0,tracks)+(90 if luck<.2 else 0))%180)
+        step=nav.update(t,t,box,objects,plane,line)
         if step:
             moving=(step[0],t+step[1]+lag)
         if moving and t<moving[1]:
@@ -267,7 +274,51 @@ YELLOW=(420,70,480,130)     # hoja amarilla (latas), arriba a la derecha
 
 
 def on(w,sheet):
-    return sheet[0]<w[0]<sheet[2] and sheet[1]<w[1]<sheet[3]
+    # Como el programa (2/11): encima si su centro cae en la hoja o si al menos el 40 % del residuo (20x20) la pisa.
+    inside=max(0,min(w[0]+10,sheet[2])-max(w[0]-10,sheet[0]))*max(0,min(w[1]+10,sheet[3])-max(w[1]-10,sheet[1]))
+    return bool(sheet[0]<w[0]<sheet[2] and sheet[1]<w[1]<sheet[3] or inside>=.4*400)
+
+
+class TrackAxisTests(unittest.TestCase):
+    """Rumbo por la dirección de las orugas vista en la imagen (2/11)."""
+    def test_axis_gives_the_sense_closest_to_what_is_known(self):
+        nav=GoToWaste(); nav.axis=170.
+        self.assertAlmostEqual(nav.axis_near(-20,35),-10)        # 170 o -10: el más cercano a -20
+        self.assertAlmostEqual(nav.axis_near(150,35),170)
+        self.assertIsNone(nav.axis_near(80,35))                  # perpendicular: no cuadra, se descarta
+        nav.axis=None; self.assertIsNone(nav.axis_near(0,35))
+
+    def test_after_a_turn_the_tracks_replace_the_check_step(self):
+        nav=GoToWaste(); nav.start(0)
+        nav.heading,nav.turn_rate,nav.turn_known=0.,200.,True
+        nav.last_turn=(0.,.3)                                    # giro de unos 70° con «a»
+        nav.pending={'letter':'a','seconds':.3,'start':0,'center':np.zeros(2)}
+        nav.axis=75.; nav.measure(np.zeros(2))
+        self.assertIsNone(nav.last_turn)                         # ya sabe hacia dónde mira: sin comprobación
+        self.assertAlmostEqual(nav.heading,75.)
+        nav.last_turn=(75.,.3); nav.pending={'letter':'a','seconds':.3,'start':0,'center':np.zeros(2)}
+        nav.axis=60.; nav.measure(np.zeros(2))                   # no cuadra con el giro (esperaba ~147°)
+        self.assertIsNotNone(nav.last_turn)                      # se comprueba como siempre
+
+    def test_sheets_with_tracks_need_few_check_steps(self):
+        import navegacion
+        checks=[0]; original=navegacion.GoToWaste.check_step
+        def counted(self,*a,**k):
+            checks[0]+=1; return original(self,*a,**k)
+        rng=np.random.default_rng(5);done=n=0
+        with patch.object(navegacion.GoToWaste,'check_step',counted):
+            while n<10:
+                box=(rng.uniform(150,450),rng.uniform(120,400));can=(rng.uniform(150,450),rng.uniform(120,400))
+                start=(rng.uniform(150,450),rng.uniform(150,420))
+                if min(np.hypot(*np.subtract(box,can)),np.hypot(*np.subtract(box,start)),np.hypot(*np.subtract(can,start)))<70:continue
+                if on(box,RED) or on(can,YELLOW):continue
+                n+=1
+                nav,(b,c),_,_=simulate_push(rng.uniform(-180,180),rng.choice([-1,1])*rng.uniform(100,250),rng.uniform(40,90),
+                                            [box,can],start,noise=3,lag=.15,limit=500,jumps=4,tracks=5,
+                                            labels=['caja de carton','lata'],sheets={'caja de carton':RED,'lata':YELLOW})
+                done+=on(b,RED) and on(c,YELLOW)
+        self.assertGreaterEqual(done,8)                          # 56 de 60 en el banco de pruebas
+        self.assertLess(checks[0]/n,14)                          # sin orugas, unas 22 por escena
 
 
 class SheetTests(unittest.TestCase):
@@ -291,6 +342,14 @@ class SheetTests(unittest.TestCase):
         nav,(b,),_,_=simulate_push(0,160,70,[(300,250)],start=(200,250),noise=2,lag=.15,limit=300,
                                    labels=['caja de carton'],sheets={'lata':YELLOW})
         self.assertTrue(fully_outside(b),nav.message)
+
+    def test_waste_mostly_on_its_sheet_is_left_alone(self):
+        nav=GoToWaste(); nav.start(0)
+        nav.sheets={'lata':np.float32([[a,b],[c,b],[c,d],[a,d]]) for a,b,c,d in [(np.array(YELLOW)-[100,50,100,50])]}
+        plane=lambda pts:np.asarray(pts,float).reshape(-1,2)-SQUARE
+        # Hoja amarilla en la imagen: x 420-480, y 70-130. Lata larga con el centro (417, 100) fuera y el 45 % dentro.
+        can={'box':[385,92,449,108],'center':[417,100],'label':'lata','countable':True,'inside':True}
+        self.assertIsNone(nav.update(0,0,(280,230,40,40),[can],plane))
 
     def test_waste_already_on_its_sheet_is_left_alone(self):
         nav=GoToWaste(); nav.start(0)

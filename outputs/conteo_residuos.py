@@ -9,6 +9,7 @@ import uuid
 import cv2
 import numpy as np
 from vision_residuos import overlap
+from vision_hojas import ON_SHEET, share_on
 
 DEFAULT_DB = Path(__file__).resolve().parents[1] / 'work/estadisticas.sqlite3'
 
@@ -146,6 +147,7 @@ class SeparationCounter:
             observed=round(now-obj.get('observation_age',0),3)
             box=np.asarray(obj['box'],float);image=(box[:2]+box[2:])/2
             region,center=self.region(box,matrix,shape)
+            quad=self.to_plane([[box[0],box[1]],[box[2],box[1]],[box[2],box[3]],[box[0],box[3]]],matrix)
             candidates=[]
             for i,t in enumerate(self.tracks):
                 if i in used or t['label']!=obj['label']: continue
@@ -185,7 +187,7 @@ class SeparationCounter:
             t.update(box=box,image=image,center=center,seen=now,observed=observed,obs=t.get('obs',0)+1)
             obj['track_id']=t['id']
             if t['label'] in self.sheets:
-                emitted+=self.placement(t,center,now,obj['confidence'])
+                emitted+=self.placement(t,center,now,obj['confidence'],quad)
                 continue
             if t['hits']>=2 and now-t['since']>=.35:
                 if region=='in': t['inside']=True
@@ -215,10 +217,11 @@ class SeparationCounter:
         if shape is not None:
             emitted+=self.left_view(matrix,shape,robot,now,used)
         return emitted
-    def placement(self, t, center, now, confidence):
+    def placement(self, t, center, now, confidence, quad=None):
         """Llevado a su hoja: visto fuera de ella (confirmado) y después encima (2 observaciones en ≥ 0,35 s)."""
         goal=np.float32(self.sheets[t['label']])
-        spot='goal' if cv2.pointPolygonTest(goal,(float(center[0]),float(center[1])),True)>-2 else 'off'
+        on=(quad is not None and share_on(quad,goal)>=ON_SHEET) or cv2.pointPolygonTest(goal,(float(center[0]),float(center[1])),True)>-2
+        spot='goal' if on else 'off'
         if spot!=t.get('spot'):
             t.update(spot=spot,spot_hits=1,spot_since=now)
         else:

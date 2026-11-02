@@ -180,6 +180,22 @@ def on_sheet(box, sheets_image, frame, polygon=None, paper=None):
     return list(box)
 
 
+# Un residuo está «en su hoja» si su centro cae encima o si al menos el 40 % de su caja la pisa (2/11: el blanqueador,
+# largo, quedaba con el cuerpo sobre la hoja roja y el centro justo fuera; el robot volvía a por él, daba vueltas junto
+# a la cinta y no se contaba).
+ON_SHEET = .4
+
+
+def share_on(quad, sheet):
+    """Parte (0-1) del cuadrilátero quad que cae sobre la hoja (los dos convexos y en las mismas coordenadas)."""
+    quad, sheet = np.float32(quad).reshape(-1, 2), np.float32(sheet).reshape(-1, 2)
+    area = cv2.contourArea(quad)
+    if area <= 0:
+        return 0.
+    inter, _ = cv2.intersectConvexConvex(quad, sheet)
+    return float(inter / area)
+
+
 def is_sheet(box, sheets_image, frame):
     return on_sheet(box, sheets_image, frame) is None
 

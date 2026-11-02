@@ -14,7 +14,7 @@ las mismas protecciones que los pasos manuales.
 import math
 import cv2
 import numpy as np
-from vision_hojas import DESTINO
+from vision_hojas import DESTINO, ON_SHEET, share_on
 
 SIZE = 400.   # lado del recuadro en las coordenadas del plano (el programa lo proyecta a 400 x 400)
 
@@ -105,6 +105,8 @@ class GoToWaste:
         self.goal_label = None        # clase del residuo que se lleva a su hoja
         self.placed = 0
         self.pushing_pick = None      # el residuo que se está empujando
+        self.axis = None              # dirección de las orugas en la imagen actual (0-180), si se ve
+        self.last_letter = None       # última orden enviada
 
     @property
     def pushing(self):
@@ -146,7 +148,7 @@ class GoToWaste:
         apart = (lambda o: covered(o['box'], robot) < .5) if in_plane else (lambda o: box_gap(robot, o['box']) > 0)
         found = [o for o in objects if o.get('countable', True) and inside(o) and apart(o) and not stale(o) and
                  not any(np.linalg.norm(to_plane([o['center']])[0] - p) < 40 for p in later) and
-                 not self.on_goal(o['label'], to_plane([o['center']])[0])]
+                 not self.on_goal(o['label'], to_plane([o['center']])[0], 0., to_plane(corners_of(o['box'])))]
         if self.target is not None:
             # Al empujarlo se mueve con el robot: se acepta un salto mayor entre detecciones. Mientras se empuja
             # se sigue también cuando ya está fuera, para saber que salió del todo.
@@ -170,14 +172,16 @@ class GoToWaste:
         self.target = dict(best, seen=now, pick=self.picks)
         return self.target
 
-    def update(self, now, stamp, robot_box, objects, plane=None):
+    def update(self, now, stamp, robot_box, objects, plane=None, axis=None):
         """robot_box: (x, y, w, h). Devuelve (letra, segundos) para un paso nuevo, o None.
+        axis: dirección de las orugas en el recuadro (grados, 0-180, sin saber cuál es el frente), o None.
 
         plane convierte puntos de la imagen a coordenadas del recuadro de cinta (0-400). Así, si la cámara se
         mueve (por ejemplo, en la mano), el desplazamiento medido sigue siendo solo el del robot."""
         to_plane = plane or (lambda points: np.asarray(points, float).reshape(-1, 2))
         if not self.active:
             return None
+        self.axis = axis
         if now - self.started > self.max_time:
             if not (self.push and plane is not None and self.target is not None):
                 self.stop('Automatico detenido: tiempo maximo sin sacar el residuo')
@@ -296,7 +300,8 @@ class GoToWaste:
         goal = self.sheets.get(goal_label)
         if goal is not None and self.phase in ('go', 'push') and (self.phase == 'go' or self.mode == 'goal'):
             self.goal_label = goal_label
-            return self.goal_step(now, center, robot_half, waste, fresh, target or {}, goal_label, np.asarray(goal, float))
+            quad = box if target is not None and fresh else None
+            return self.goal_step(now, center, robot_half, waste, fresh, target or {}, goal_label, np.asarray(goal, float), quad)
         if self.phase == 'go':
             self.mode = 'exit'
             # Sin rodeos: el robot va en línea recta hacia el residuo y, al tocarlo, sigue por esa misma línea
@@ -376,12 +381,16 @@ class GoToWaste:
                 return 300.
         return 0.
 
-    def on_goal(self, label, point, margin=0.):
-        """¿Está ese punto (plano) sobre la hoja de su clase?"""
+    def on_goal(self, label, point, margin=0., quad=None):
+        """¿Está sobre la hoja de su clase? El punto (plano) encima, o buena parte de su caja quad (plano) encima."""
         goal = self.sheets.get(label)
-        return goal is not None and cv2.pointPolygonTest(np.float32(goal), (float(point[0]), float(point[1])), True) > margin
+        if goal is None:
+            return False
+        if quad is not None and share_on(quad, goal) >= ON_SHEET:
+            return True
+        return cv2.pointPolygonTest(np.float32(goal), (float(point[0]), float(point[1])), True) > margin
 
-    def goal_step(self, now, center, robot_half, waste, fresh, target, label, goal):
+    def goal_step(self, now, center, robot_half, waste, fresh, target, label, goal, quad=None):
         """Llevar el residuo a su hoja: si el robot no está ya detrás del residuo (mirando hacia la hoja), primero se
         coloca detrás; después lo empuja recto hacia el centro de la hoja hasta dejarlo encima."""
         self.mode = 'goal'
@@ -396,7 +405,7 @@ class GoToWaste:
         self.plan = {'robot': center.copy(), 'waste': waste.copy(), 'exit': middle.copy(),
                      'staging': None if self.staged == target.get('pick') else behind.copy()}
         if self.phase == 'push':
-            if fresh and self.on_goal(label, waste, -2):
+            if fresh and self.on_goal(label, waste, -2, quad):
                 # Encima de su hoja: retrocede y sigue con el siguiente.
                 self.phase, self.backs = 'back', 0
                 self.message = f'{label} en la hoja {sheet}: retrocediendo'
@@ -458,7 +467,7 @@ class GoToWaste:
             return self.go_to(waste, now, center, f'yendo hacia {label} ({distance:.0f})')
         self.phase = 'push'
         self.pushing_pick = target.get('pick')
-        return self.goal_step(now, center, robot_half, waste, fresh, target, label, goal)
+        return self.goal_step(now, center, robot_half, waste, fresh, target, label, goal, quad)
 
     def waste_placed(self, now):
         self.done.append((self.plan.get('exit', np.zeros(2)), now))
@@ -569,6 +578,10 @@ class GoToWaste:
         return self.step('w', seconds, now, center)
 
     def turn_by(self, error, now, center, doing):
+        if self.last_letter in ('a', 'd'):
+            # Nunca dos giros seguidos: con el rumbo de las orugas, encadenaba giros sin avanzar y daba vueltas en el
+            # mismo sitio (2/11). Entre giro y giro, un paso adelante (que además vuelve a medir).
+            return self.check_step(now, center)
         if self.turn_known:
             longest = min(self.turn[1], 120 / abs(self.turn_rate))
             seconds = float(np.clip(abs(error) / abs(self.turn_rate) - self.lag, self.turn[0], longest))
@@ -580,11 +593,49 @@ class GoToWaste:
         return self.step(letter, seconds, now, center)
 
     def step(self, letter, seconds, now, center):
+        self.last_letter = letter
         self.pending = {'letter': letter, 'seconds': seconds, 'start': now, 'center': center.copy()}
         return letter, seconds
 
+    def axis_near(self, reference, limit):
+        """Rumbo según las orugas (su eje, en el sentido más cercano a reference) si queda a menos de limit grados de
+        reference; si no (o no se ven), None. Las orugas dan la dirección con ~5° de error y sin moverse; el
+        desplazamiento de un paso corto, con ~20°."""
+        if self.axis is None or reference is None:
+            return None
+        pick = min((self.axis, self.axis + 180.), key=lambda a: abs(angle_diff(a, reference)))
+        return angle_diff(pick, 0) if abs(angle_diff(pick, reference)) <= limit else None
+
+    def turn_from_axis(self):
+        """Tras un giro, las orugas dicen hacia dónde quedó el robot: no hace falta el paso de comprobación (2/11:
+        girar y comprobar era el 60 % del tiempo). Si no cuadran con el giro hecho, se comprueba como siempre."""
+        if self.last_turn is None or self.axis is None or self.last_turn[0] is None:
+            return
+        before, signed = self.last_turn
+        if self.turn_known:
+            expected = self.turn_rate * (signed + math.copysign(self.lag, signed))
+            seen = self.axis_near(before + expected, 30)
+            if seen is None:
+                return
+            change = angle_diff(seen, before)
+            # Solo se aprende de giros claros y parecidos a lo esperado (en vivo, aprender de todos hacía saltar
+            # la velocidad de giro entre 55 y 166 °/s).
+            if abs(change) >= 20 and .5 <= change / expected <= 2:
+                self.learn_turn(change, signed)
+        else:
+            # Primer giro, corto: el rumbo nuevo es el sentido de las orugas más cercano al de antes.
+            seen = self.axis_near(before, 70)
+            if seen is None:
+                return
+            self.learn_turn(angle_diff(seen, before), signed)
+        if self.turn_known:
+            self.heading, self.last_turn = seen, None
+
     def measure(self, center):
         step, self.pending = self.pending, None
+        if step['letter'] in 'ad':
+            self.turn_from_axis()
+            return
         if step['letter'] not in 'ws':
             return
         moved = center - step['center']
@@ -610,6 +661,8 @@ class GoToWaste:
             self.speed = max(20., .7 * self.speed)
             if expected is not None:
                 self.heading = angle_diff(expected, 0)
+                seen = self.axis_near(self.heading, 35)
+                self.heading = self.heading if seen is None else seen
             else:
                 self.last_turn = turn   # sin saber cómo gira, hay que volver a comprobarlo
             return
@@ -623,6 +676,10 @@ class GoToWaste:
         # el rumbo medido es poco fiable. Se mezcla con el esperado en proporción a lo que se movió.
         trust = min(1., (distance - self.min_move) / (self.reliable - self.min_move))
         self.heading = measured if expected is None else angle_diff(expected + trust * angle_diff(measured, expected), 0)
+        # Las orugas, si se ven y cuadran, mandan: mucho más precisas que el desplazamiento.
+        seen = self.axis_near(self.heading, 35)
+        if seen is not None:
+            self.heading = angle_diff(seen + .2 * angle_diff(self.heading, seen), 0)
 
     def learn_turn(self, change, signed):
         """Grados por segundo con signo que gira «a» con esta cámara, a partir de un giro bien medido."""

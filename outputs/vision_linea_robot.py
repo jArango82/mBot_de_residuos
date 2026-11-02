@@ -20,6 +20,7 @@ from vision_superres import SuperResolution
 from conteo_residuos import EventStore, SeparationCounter
 from navegacion import GoToWaste, covered
 import vision_hojas
+from vision_orugas import track_axis, plane_axis
 from dashboard import LiveVideo, serve
 
 
@@ -384,7 +385,8 @@ def main():
                     # Ya en su hoja (separado): el panel no lo cuenta como pendiente.
                     goal_color=vision_hojas.DESTINO.get(label)
                     on_goal=bool(goal_color in sheets_image and
-                                 cv2.pointPolygonTest(np.float32(sheets_image[goal_color]),center,False) >= 0)
+                                 (cv2.pointPolygonTest(np.float32(sheets_image[goal_color]),center,False) >= 0 or
+                                  vision_hojas.share_on([[x1,y1],[x2,y1],[x2,y2],[x1,y2]],sheets_image[goal_color]) >= vision_hojas.ON_SHEET))
                     color=(230,80,240) if countable else (0,210,255)
                     objects.append({'countable':countable,'type':name,'label':label,'confidence':float(confidence),
                                     'box':[x1,y1,x2,y2],'center':list(center),'inside':inside,
@@ -416,12 +418,20 @@ def main():
                         plane = lambda pts,m=square: cv2.perspectiveTransform(np.float32(pts).reshape(-1,1,2),m).reshape(-1,2)
                     # Para medir cuánto y hacia dónde se movió, la caja del detector del robot tiembla mucho menos que
                     # la del seguimiento (que además salta cuando se corrige). Se usa si es reciente y coincide.
-                    nav_box, nav_stamp = box, stamp
+                    nav_box, nav_stamp, nav_frame = box, stamp, frame
                     if own_finder and hits and now-hit_stamp < .5 and box is not None and \
                             overlap(hits[0][0], (box[0],box[1],box[0]+box[2],box[1]+box[3])) > .2:
                         x1, y1, x2, y2 = hits[0][0]
                         nav_box, nav_stamp = (x1, y1, x2-x1, y2-y1), hit_stamp
-                    step = nav.update(now,nav_stamp,nav_box,objects,plane)
+                        if hit_frame is not None and hit_frame.shape == frame.shape:
+                            nav_frame = hit_frame
+                    # Hacia dónde mira, por sus orugas en la misma imagen que la caja (2/11): evita casi todos los pasos
+                    # de comprobación tras cada giro, que con la caja temblando medían con ~20° de error.
+                    nav_axis = None
+                    if nav_box is not None and plane is not None:
+                        seen = track_axis(nav_frame, nav_box)
+                        nav_axis = plane_axis(seen, nav_box, plane) if seen is not None else None
+                    step = nav.update(now,nav_stamp,nav_box,objects,plane,nav_axis)
                     if step:
                         command,until = step[0],now+step[1]
                     if nav.beep:
@@ -530,7 +540,7 @@ def main():
                     'superres_enabled':enhancer.enabled,'superres_status':enhancer.status,
                     'superres_ms':enhancer.elapsed_ms,
                     'auto_active':nav.active,'auto_message':nav.message,'auto_heading':nav.heading,
-                    'auto_turn_rate':nav.turn_rate,'auto_speed':nav.speed,
+                    'auto_turn_rate':nav.turn_rate,'auto_speed':nav.speed,'auto_axis':nav.axis,
                     'objects':objects,'vision_only':args.solo_vision},indent=2),encoding='utf-8')
                 last_saved = now
             key = cv2.waitKey(15)&0xff

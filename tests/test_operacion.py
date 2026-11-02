@@ -130,6 +130,13 @@ class CounterTests(unittest.TestCase):
         self.sheet_feed(200,170,0);self.sheet_feed(200,170,.5);self.sheet_feed(230,140,1);self.sheet_feed(262,112,1.5)
         self.c.update([],AREA,True,2.6,sheets=self.SHEET);self.assertEqual(self.total(),1)
 
+    def test_long_waste_mostly_on_its_sheet_counts(self):
+        # 2/11: el blanqueador, largo, con el cuerpo sobre la hoja roja y el centro justo fuera del borde.
+        long=lambda x,y:dict(box=[x,y,x+60,y+16],label='botella',confidence=.8,observation_age=0)
+        for t in (0,.5,1,1.5):self.c.update([long(160,170)],AREA,True,t,sheets=self.SHEET)   # lejos de la hoja
+        for t in (2,2.5,3.5):self.c.update([long(215,115)],AREA,True,t,sheets=self.SHEET)    # centro en x 245: fuera
+        self.assertEqual(self.total(),1)
+
     def test_glimpse_on_its_sheet_while_pushed_counts_once(self):
         # Prueba del 2/11: visto un instante sobre la hoja mientras el robot lo empujaba (contado al taparlo), luego
         # visto al lado durante 14 s y, al dejarlo de verdad, otra vez. Es un solo residuo.
