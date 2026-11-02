@@ -1,6 +1,6 @@
 # Automatización con n8n: registrar cada residuo en Google Sheets
 
-**Actualizado: 2 de noviembre de 2026.** Si empiezas desde cero, lee primero la [guía de estudio](GUIA_DE_ESTUDIO.md) (apartado 3.11).
+**Actualizado: 2 de noviembre de 2026.** Documento principal: [Documentación técnica del sistema](DOCUMENTACION_TECNICA.md), sección 5.11.
 
 ## Qué hace
 

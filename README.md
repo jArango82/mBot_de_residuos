@@ -1,39 +1,49 @@
 # mBot de residuos
 
-Prototipo de **robot que separa residuos de forma autónoma**. Una cámara mira desde arriba una zona marcada con cinta negra. El programa reconoce cada residuo con inteligencia artificial entrenada con fotos propias, y un **mBot Ranger** lleva cada uno a su hoja de color:
+Sistema de clasificación autónoma de residuos con visión artificial. Una cámara cenital supervisa un área de trabajo delimitada con cinta, unos modelos YOLO11n entrenados con datos propios detectan y clasifican los residuos, y un robot móvil **mBot Ranger** traslada cada residuo a su zona de destino. Los eventos de clasificación se publican en un panel web local y se registran en Google Sheets mediante **n8n**.
 
-- **Hoja amarilla (aprovechables):** caja de cartón, lata, botella de vidrio y botella de plástico.
-- **Hoja roja (peligrosos):** envase de blanqueador.
+| Zona de destino | Categoría | Residuos |
+|---|---|---|
+| Amarilla | Aprovechables | Caja de cartón, lata, botella de vidrio, botella de plástico |
+| Roja | Peligrosos | Envase de blanqueador |
 
-Un panel web cuenta cada residuo separado y muestra la cámara en vivo. Además, **n8n** apunta cada separación en Google Sheets y responde al panel.
+**Estado (versión 1.0, 02/11/2026):** prototipo validado en entorno de laboratorio, con verificación física de extremo a extremo (detección, traslado, conteo, registro en Google Sheets y acuse en el panel). Las limitaciones conocidas están en la sección 13 de la documentación técnica.
 
-**Estado al 2 de noviembre de 2026:** funciona de punta a punta y está probado con el robot real. El robot llevó el envase de blanqueador a la hoja roja y la caja a la amarilla, y el panel los contó. n8n los apuntó en Google Sheets y respondió al panel. Es un prototipo y tiene límites conocidos: consulta [Estado](docs/ESTADO.md) y [Problemas conocidos](docs/PROBLEMAS.md).
+![Secuencia de clasificación: estado inicial, empuje y estado final](docs/imagenes/secuencia_separacion.jpg)
 
-![El robot separando residuos: inicio, empuje y final](docs/imagenes/secuencia_separacion.jpg)
+## Documentación
 
-## Empieza aquí
+| Documento | Contenido |
+|---|---|
+| [Documentación técnica del sistema](docs/DOCUMENTACION_TECNICA.md) ([PDF](docs/mBot_de_residuos_documentacion.pdf)) | Requisitos, arquitectura, diseño detallado, interfaces, configuración, seguridad, despliegue, operación, modelos, verificación y riesgos |
+| [Manual de uso](docs/USO.md) | Operación del sistema y controles |
+| [Instalación](docs/INSTALACION.md) | Requisitos, dependencias y modelos |
+| [Integración con n8n](docs/N8N.md) | Flujo, contrato del webhook y configuración de Google Sheets |
+| [Robot y firmware](docs/ROBOT.md) | Protocolo BLE, firmware V2 y carga por USB |
+| [Arquitectura](docs/ARQUITECTURA.md) | Módulos, hilos y archivos |
+| [Entrenamiento](docs/ENTRENAMIENTO.md) | Conjuntos de datos, etiquetado y métricas |
+| [Estado](docs/ESTADO.md) / [Problemas conocidos](docs/PROBLEMAS.md) | Registro de pruebas y resolución de incidencias |
 
-1. **[Guía de estudio](docs/GUIA_DE_ESTUDIO.md):** qué es, cómo funciona paso a paso, qué se hizo, resultados, límites, preguntas del profesor y glosario. **Léela primero.**
-2. [Manual de uso](docs/USO.md): teclas, panel y demostración.
-3. [Instalación](docs/INSTALACION.md): requisitos y modelos.
-4. [Automatización con n8n](docs/N8N.md): Google Sheets y respuesta al panel.
-5. [Robot, Bluetooth y firmware](docs/ROBOT.md).
-6. [Arquitectura](docs/ARQUITECTURA.md): qué hace cada archivo.
-7. [Entrenamiento del detector](docs/ENTRENAMIENTO.md).
-8. [Estado](docs/ESTADO.md) y [problemas conocidos](docs/PROBLEMAS.md).
+Material didáctico para la exposición del proyecto: [guía de estudio](docs/GUIA_DE_ESTUDIO.md) ([PDF](docs/Guia_de_estudio_mBot_de_residuos.pdf)).
 
-También hay un PDF con todo: [docs/mBot_de_residuos_documentacion.pdf](docs/mBot_de_residuos_documentacion.pdf).
+## Inicio rápido
 
-## Uso rápido (en el Mac del proyecto)
+```sh
+outputs/n8n/Abrir_n8n.command                                   # n8n en http://localhost:5678
+work/venv/bin/python outputs/vision_linea_robot.py              # sistema principal
+open http://127.0.0.1:8765                                      # panel de monitorización
+```
 
-1. Doble clic en `outputs/n8n/Abrir_n8n.command` (n8n en http://localhost:5678).
-2. Doble clic en `outputs/Probar_Robot_Linea.command` (programa principal).
-3. Abrir el panel: http://127.0.0.1:8765.
-4. En la ventana del programa: **C** conectar el robot, **E** habilitar, **G** separar residuos, **Espacio** parar.
+Controles: `C` conectar · `E` habilitar · `G` modo automático · `Espacio` parar · `Q` salir.
 
-## Requisitos importantes
+## Requisitos
 
-- **Solo Mac** (la cámara se lee con AVFoundation, de Apple). Probado en un Mac con chip M5.
-- Cámara externa: Samsung con Camo (o LifeCam). La cámara integrada del Mac no se usa nunca.
-- Los **modelos entrenados** (`outputs/models/*.pt`) no están en GitHub porque pesan mucho. Los propios (`residuos-propio.pt`, `robot-propio.pt`) hay que pedirlos al autor; los generales se descargan con `outputs/preparar_modelos.py`.
-- Pruebas automáticas: `work/venv/bin/python -m unittest discover -s tests` (149 pruebas).
+- macOS en Apple Silicon (captura de vídeo mediante AVFoundation), Python 3.13 y Node.js ≥ 24 para n8n.
+- Cámara externa (Samsung con Camo o Microsoft LifeCam) y mBot Ranger con firmware `RANGER_READY_V2_20261019`.
+- Modelos entrenados en `outputs/models/`. Los pesos no se versionan: los propios (`residuos-propio.pt`, `robot-propio.pt`) se obtienen del autor y los generales con `outputs/preparar_modelos.py`.
+
+## Pruebas
+
+```sh
+work/venv/bin/python -m unittest discover -s tests              # 149 casos, sin hardware
+```

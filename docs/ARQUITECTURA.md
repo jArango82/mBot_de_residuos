@@ -2,7 +2,7 @@
 
 Actualizado: 2 de noviembre de 2026
 
-¿Empiezas desde cero? Lee primero la [Guía de estudio](GUIA_DE_ESTUDIO.md).
+Documento principal: [Documentación técnica del sistema](DOCUMENTACION_TECNICA.md).
 
 [Inicio](../README.md) · [Estado](ESTADO.md) · [Uso](USO.md) · [Operación](OPERACION_V2.md)
 
