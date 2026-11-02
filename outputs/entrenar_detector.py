@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Entrena un detector YOLO con las fotos etiquetadas de work/dataset y lo evalúa con una sesión reservada.
 
-Etiquetas: work/dataset/etiquetas/<sesión>.json con {"classes": [...], "labels": {"0001.jpg": [{"cls": 0,
+Etiquetas: work/dataset/etiquetas/<sesión>.json (o la carpeta de --etiquetas) con {"classes": [...], "labels": {"0001.jpg": [{"cls": 0,
 "box": [x1, y1, x2, y2]}, ...]}} en píxeles de la imagen original. Las fotos están en
-work/dataset/imagenes/<sesión>/. La sesión indicada con --prueba no se usa para aprender.
+work/dataset/imagenes/<sesión>/. Las sesiones indicadas con --prueba no se usan para aprender.
+
+Detector del robot: --etiquetas work/dataset/etiquetas-robot --salida outputs/models/robot-propio.pt
 """
 import argparse
 import json
@@ -17,14 +19,14 @@ os.environ.setdefault('YOLO_CONFIG_DIR', str(ROOT / 'work/yolo-config'))
 OUTPUT = ROOT / 'outputs/models/residuos-propio.pt'
 
 
-def sessions():
+def sessions(folder):
     """Sesiones con etiquetas revisadas; los .dino.json son preetiquetas sin revisar."""
     found = {}
-    for path in sorted((DATASET / 'etiquetas').glob('*.json')):
-        if not path.name.endswith('.dino.json'):
+    for path in sorted(Path(folder).glob('*.json')):
+        if '.' not in path.stem:   # <sesión>.json; los .dino.json / .modelo.json son propuestas sin revisar
             found[path.stem] = json.loads(path.read_text())
     if not found:
-        raise RuntimeError('No hay etiquetas en work/dataset/etiquetas.')
+        raise RuntimeError(f'No hay etiquetas en {folder}.')
     classes = {tuple(d['classes']) for d in found.values()}
     if len(classes) != 1:
         raise RuntimeError('Las sesiones tienen listas de clases distintas.')
@@ -48,7 +50,7 @@ def build(found, classes, test, folder):
         shutil.rmtree(folder)
     counts = {'train': 0, 'val': 0}
     for session, data in found.items():
-        split = 'val' if session == test else 'train'
+        split = 'val' if session in test else 'train'
         (folder / 'images' / split).mkdir(parents=True, exist_ok=True)
         (folder / 'labels' / split).mkdir(parents=True, exist_ok=True)
         for name, objs in data['labels'].items():
@@ -71,7 +73,9 @@ def build(found, classes, test, folder):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--prueba', required=True, help='Sesion reservada para evaluar (no se aprende de ella)')
+    parser.add_argument('--prueba', required=True, nargs='+', help='Sesiones reservadas para evaluar (no se aprende de ellas)')
+    parser.add_argument('--etiquetas', default=str(DATASET / 'etiquetas'), help='Carpeta con las etiquetas revisadas')
+    parser.add_argument('--salida', default=str(OUTPUT), help='Archivo del modelo entrenado')
     parser.add_argument('--epocas', type=int, default=80)
     parser.add_argument('--tam', type=int, default=960, help='Lado de imagen para entrenar')
     parser.add_argument('--base', default=str(ROOT / 'outputs/models/yolo11n.pt'), help='Modelo YOLO de partida')
@@ -79,24 +83,26 @@ def main():
     import torch
     from ultralytics import YOLO, settings
     settings.update({'sync': False})
-    found, classes = sessions()
-    folder = DATASET / 'yolo'
+    found, classes = sessions(args.etiquetas)
+    output = Path(args.salida)
+    name = output.stem
+    folder = DATASET / f'yolo-{name}'
     yaml, counts = build(found, classes, args.prueba, folder)
     print(f'Clases: {classes} | fotos para aprender: {counts["train"]} | fotos de prueba: {counts["val"]}', flush=True)
     device = 'mps' if torch.backends.mps.is_available() else 'cpu'
     # Vista cenital: los residuos pueden aparecer en cualquier giro, así que se gira y voltea al aprender.
     YOLO(args.base).train(data=str(yaml), epochs=args.epocas, imgsz=args.tam, batch=8, device=device, workers=0,
-                          degrees=180, flipud=.5, project=str(ROOT / 'work/entrenamientos'), name='residuos-propio',
+                          degrees=180, flipud=.5, project=str(ROOT / 'work/entrenamientos'), name=name,
                           exist_ok=True, plots=False, verbose=False, seed=0)
     # Se usa el modelo de la última época, no el que mejor puntúa en la prueba: así la prueba sigue siendo honesta.
-    last = ROOT / 'work/entrenamientos/residuos-propio/weights/last.pt'
-    shutil.copy(last, OUTPUT)
-    metrics = YOLO(str(OUTPUT)).val(data=str(yaml), imgsz=args.tam, device=device, workers=0, plots=False, verbose=False)
+    last = ROOT / 'work/entrenamientos' / name / 'weights/last.pt'
+    shutil.copy(last, output)
+    metrics = YOLO(str(output)).val(data=str(yaml), imgsz=args.tam, device=device, workers=0, plots=False, verbose=False)
     report = {'clases': classes, 'fotos_aprender': counts['train'], 'fotos_prueba': counts['val'], 'sesion_prueba': args.prueba,
               'mAP50': round(float(metrics.box.map50), 3),
               'mAP50_por_clase': {classes[int(c)]: round(float(v), 3) for c, v in zip(metrics.box.ap_class_index, metrics.box.ap50)}}
-    (ROOT / 'work/entrenamientos/residuos-propio/resultado.json').write_text(json.dumps(report, indent=2, ensure_ascii=False))
-    print('Modelo guardado en', OUTPUT, '\n' + json.dumps(report, indent=2, ensure_ascii=False), flush=True)
+    (ROOT / 'work/entrenamientos' / name / 'resultado.json').write_text(json.dumps(report, indent=2, ensure_ascii=False))
+    print('Modelo guardado en', output, '\n' + json.dumps(report, indent=2, ensure_ascii=False), flush=True)
 
 
 if __name__ == '__main__':

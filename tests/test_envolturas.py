@@ -3,7 +3,7 @@ from pathlib import Path
 import sys,unittest,tempfile
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'outputs'))
 import numpy as np
-from vision_papel import restore_box,small_candidates,PaperDetector,phrase_result,colorless
+from vision_papel import restore_box,small_candidates,PaperDetector,phrase_result,colorless,robot_boxes
 from vision_residuos import merge_observations
 from conteo_residuos import EventStore,SeparationCounter
 
@@ -40,6 +40,12 @@ class WrapperTests(unittest.TestCase):
         self.assertTrue(colorless(image,[20,20,90,80]))      # servilleta blanca
         self.assertFalse(colorless(image,[110,20,190,80]))   # envoltura de color
         self.assertFalse(colorless(image,[300,20,390,80]))   # fuera de la imagen: no decide
+    def test_robot_needs_its_description_confidence_and_plausible_size(self):
+        result={'boxes':np.array([[300,150,360,210],[400,150,460,210],[0,0,1800,1000],[100,100,160,160]],float),
+                'text_labels':['a small robot car with tracks','a small robot car with tracks','a small robot car with tracks','a shoe'],
+                'scores':[.72,.40,.80,.90]}
+        found=robot_boxes(result,(1080,1920,3),min_side=20)
+        self.assertEqual([b.tolist() for b,_ in found],[[300,150,360,210]])
     def test_general_and_specialist_do_not_double_count_one_object(self):
         general=[([100,100,130,125],'envoltura plastica',.5,.2),([200,200,230,250],'botella',.8,.1)]
         special=[([101,101,130,124],'envoltura',.4,1.5)]

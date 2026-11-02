@@ -12,7 +12,8 @@ def tape_image(frame):
 
 
 class AutoBoundary:
-    tolerance = 20
+    # Con la cámara en la mano el recuadro se desplaza unos píxeles entre imágenes; 20 px no bastaba.
+    tolerance = 30
 
     def __init__(self):
         self.reset()
@@ -50,8 +51,9 @@ class AutoBoundary:
                 return False
         return True
 
-    def update(self, quads, lines, stamp, now):
-        """Devuelve True al seleccionar/reubicar; nunca habilita motores."""
+    def update(self, quads, lines, stamp, now, seen=None):
+        """Devuelve True al seleccionar/reubicar; nunca habilita motores.
+        seen(recuadro) da el apoyo de cinta de cada lado en la imagen actual, si se conoce."""
         if now-stamp > .30:
             self.visible=False
             self.pending=[]
@@ -65,10 +67,13 @@ class AutoBoundary:
             near=[q for q in aligned if np.max(np.linalg.norm(q-self.boundary,axis=1)) <= self.tolerance]
             if near:
                 nearest=min(near,key=lambda q:np.max(np.linalg.norm(q-self.boundary,axis=1)))
-                self.boundary=.65*self.boundary+.35*nearest
+                self.boundary=.5*self.boundary+.5*nearest
                 self.visible=True
             elif self.supported(lines):
                 # Cada lado sigue respaldado por cinta actual, aunque falle el contorno.
+                self.visible=True
+            elif seen is not None and np.sort(seen(self.boundary))[1] >= .4:
+                # La cinta sigue en su sitio en al menos tres lados: una persona o un zapato puede tapar uno.
                 self.visible=True
             if self.visible:
                 self.last_seen=stamp
@@ -83,12 +88,15 @@ class AutoBoundary:
             return False
         candidate=quads[0]
         if self.pending:
-            choices=[self.align(self.pending[0][1],q) for q in quads]
-            candidate=min(choices,key=lambda q:np.max(np.linalg.norm(q-self.pending[0][1],axis=1)))
-            if stamp-self.pending[-1][0] > .2 or np.max(np.linalg.norm(candidate-self.pending[0][1],axis=1)) > self.tolerance:
+            # Se compara con la imagen anterior, no con la primera: así se acepta la deriva lenta de una cámara
+            # en la mano, pero no un salto a otro recuadro.
+            last=self.pending[-1][1]
+            choices=[self.align(last,q) for q in quads]
+            candidate=min(choices,key=lambda q:np.max(np.linalg.norm(q-last,axis=1)))
+            if stamp-self.pending[-1][0] > .2 or np.max(np.linalg.norm(candidate-last,axis=1)) > self.tolerance:
                 self.pending=[]
         self.pending.append((stamp,np.asarray(candidate,np.float32).copy()))
         if len(self.pending) >= 6 and stamp-self.pending[0][0] >= .4:
-            self.confirm(np.median([q for _,q in self.pending],axis=0),stamp)
+            self.confirm(np.median([q for _,q in self.pending[-3:]],axis=0),stamp)
             return True
         return False

@@ -7,10 +7,17 @@ import numpy as np
 MODEL_LOCK = threading.Lock()
 
 
+# Botellas que el detector propio distingue (1/11): cada una va a su hoja, no se juntan en «botella».
+TRAINED_BOTTLES = ('botella de vidrio', 'botella de plastico')
+# Ante la duda entre un residuo y otro peligroso que se le parece, se trata como peligroso: un envase de
+# blanqueador en la hoja de aprovechables es peor que una botella de agua en la de peligrosos.
+CAUTION = {'botella de plastico': 'envase de blanqueador'}
+
+
 def category(name):
     if name == 'tapa de botella':
         return 'objeto por identificar'  # Se confunde con rollos y envolturas pequeñas.
-    if name.startswith('botella'):
+    if name.startswith('botella') and name not in TRAINED_BOTTLES:
         return 'botella'
     if name.startswith('papel'):
         return 'papel / servilleta'
@@ -78,7 +85,7 @@ class StableObjects:
                 # El nombre mostrado es el más votado recientemente, no el de la última imagen.
                 track['votes']={label:.85*value for label,value in track['votes'].items()}
                 track['votes'][name]=track['votes'].get(name,0)+confidence
-                track['name']=max(track['votes'],key=track['votes'].get)
+                track['name']=cautious(track['votes'])
                 track['confidence']=.4*track['confidence']+.6*confidence
                 track['seen']=stamp
                 track['hits']+=1
@@ -90,6 +97,27 @@ class StableObjects:
                 used.add(len(self.tracks)-1)
         return [(t['box'].astype(int).tolist(),t['name'],t['confidence'],stamp-t['seen'])
                 for t in self.tracks if t['confirmed']]
+
+
+def cautious(votes):
+    """La etiqueta más votada, salvo que el voto de su pareja peligrosa llegue a la mitad: entonces la peligrosa."""
+    name=max(votes,key=votes.get)
+    risky=CAUTION.get(name)
+    return risky if risky and votes.get(risky,0)>=.5*votes[name] else name
+
+
+def one_label(items, same=.6):
+    """Una detección por objeto: el detector propio puede dar dos clases casi en la misma caja (plástico 0,45 y
+    blanqueador 0,30). Se queda la más segura, salvo si la otra es su pareja peligrosa: entonces la peligrosa con
+    la confianza mayor de las dos."""
+    kept=[]
+    for box,name,confidence in sorted(items,key=lambda d:d[2],reverse=True):
+        twin=next((k for k,(b,n,c) in enumerate(kept) if n!=name and overlap(box,b)>=same),None)
+        if twin is None:
+            kept.append((box,name,confidence))
+        elif CAUTION.get(kept[twin][1])==name:
+            kept[twin]=(kept[twin][0],name,kept[twin][2])
+    return kept
 
 
 def small_enough(items, shape, share=.15):

@@ -13,6 +13,10 @@ from vision_zoom import detail_sample, restore_crop, to_work
 # (cajas de medicamento con 4-23 %), mientras que DINO las puntúa con 36-77 %.
 PROMPT='a crumpled paper. a tissue. a candy wrapper. a crumpled plastic wrapper. a snack bag. a bottle. a cardboard box.'
 ROUND_PROMPT='a bottle cap. a roll of adhesive tape. a cardboard box.'
+# Robot sin etiqueta: en 46 fotogramas con la cámara en la mano, «a small robot car with tracks» lo marcó en
+# todos (0,50-0,85). Las otras frases dan a cajas, papel, zapatos y cables una descripción mejor que «robot».
+ROBOT_PROMPT='a small robot car with tracks. a cardboard box. a crumpled paper tissue. a shoe. a cable.'
+ROBOT_SCORE=.45
 # DINO y CLIP confunden papel blanco arrugado con un envoltorio. En las pruebas, la envoltura real
 # tenía saturación media 43 y el papel/servilletas 3-15: sin color se verifica como papel.
 COLORLESS=25
@@ -182,6 +186,13 @@ class SmallWasteRecognizer:
         self.model=AutoModelForZeroShotObjectDetection.from_pretrained(path,local_files_only=True).eval()
         self.verifier=PaperVerifier()
 
+    def find_robot(self,frame,min_side=10):
+        inputs=self.processor(images=cv2.cvtColor(frame,cv2.COLOR_BGR2RGB),text=ROBOT_PROMPT,
+                              return_tensors='pt',size={'shortest_edge':512,'longest_edge':768})
+        with self.torch.inference_mode(): outputs=self.model(**inputs)
+        tokens=self.processor.tokenizer.convert_ids_to_tokens(inputs.input_ids[0])
+        return robot_boxes(phrase_result(outputs.logits[0],outputs.pred_boxes[0],tokens,frame.shape),frame.shape,min_side)
+
     def detect(self,frame,turns=0,round_objects=False,min_side=10):
         view=np.rot90(frame,turns).copy()
         inputs=self.processor(images=cv2.cvtColor(view,cv2.COLOR_BGR2RGB),
@@ -227,8 +238,19 @@ def same_look(reference, current, minimum=.6):
     return float(cv2.matchTemplate(current,reference,cv2.TM_CCOEFF_NORMED)[0,0])>=minimum
 
 
+def robot_boxes(result, shape, min_side=10):
+    """Cajas descritas como robot, con confianza suficiente y un tamaño plausible."""
+    h,w=shape[:2];found=[]
+    for box,label,score in zip(result['boxes'],result['text_labels'],result['scores']):
+        b=np.asarray(box.cpu() if hasattr(box,'cpu') else box,float);score=float(score)
+        if 'robot' not in label or score<ROBOT_SCORE: continue
+        if min(b[2:]-b[:2])<2*min_side or np.prod(b[2:]-b[:2])>.3*w*h: continue
+        found.append((b,score))
+    return sorted(found,key=lambda item:-item[1])
+
+
 class PaperDetector:
-    """Nombre conservado por compatibilidad; también reconoce envolturas."""
+    """Nombre conservado por compatibilidad; también reconoce envolturas, cajas y el robot."""
     def __init__(self,camera,focus=None):
         self.camera=camera
         self.focus=focus
@@ -237,6 +259,12 @@ class PaperDetector:
         self.status='Cargando papel y envolturas...'
         self.consumed=self.frame_stamp=None
         self.trackers=[]
+        # El programa principal lo activa mientras no sigue al robot; resultado en coordenadas de análisis.
+        self.want_robot=False
+        self.robot=([],0)
+        # Con un detector entrenado para los residuos de la escena, este (lento, en CPU) se puede apagar:
+        # entonces solo busca el robot si se le pide.
+        self.want_waste=True
         self.thread=threading.Thread(target=self.run,daemon=True)
         self.thread.start()
 
@@ -255,6 +283,12 @@ class PaperDetector:
                 frame,full,stamp=sample;last_stamp=stamp
                 # La imagen original (teléfono) da más detalle; las cajas vuelven a la de análisis.
                 scale=full.shape[1]/frame.shape[1];min_side=10*scale
+                if self.want_robot and (cycle%2==0 or not self.want_waste):
+                    cycle+=1
+                    self.robot=(to_work(recognizer.find_robot(full,min_side),scale),stamp,frame)
+                    continue
+                if not self.want_waste:
+                    self.stop.wait(.2);continue
                 # Escanear giros si falta la envoltura y conservar la orientación que funciona.
                 region=self.focus.region(full.shape) if self.focus is not None else None
                 # Con zoom se alterna recorte e imagen completa: lo que queda fuera del zoom también se

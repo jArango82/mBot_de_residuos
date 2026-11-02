@@ -166,7 +166,7 @@ class Camera:
 
 class WasteDetector:
     """La inferencia es independiente: nunca retrasa la protección del borde."""
-    def __init__(self, camera, model, classes, focus=None, custom=None):
+    def __init__(self, camera, model, classes, focus=None, custom=None, robot=None, generic=True):
         self.camera = camera
         self.focus = focus
         self.model_path = model
@@ -174,9 +174,20 @@ class WasteDetector:
         # Modelo entrenado con los residuos del usuario (opcional). Va en este mismo hilo: es el único
         # que usa la gráfica del Mac.
         self.custom_path = custom
+        # generic=False: solo el detector entrenado con los residuos de la escena (sin YOLO-World), que confunde
+        # mucho menos; el general reconoce más tipos de residuo, pero con más etiquetas erróneas. None: lo decide el
+        # detector propio al cargarse (el de caja y lata apaga el general; el primero, con papel, no).
+        self.generic = generic
+        # Detector entrenado solo con el robot (opcional): lo busca en cada análisis, no cada dos segundos.
+        self.robot_path = robot
+        self.robot = ([], 0, None)
+        self.robot_ready = False
         self.latest = ([], 0)
         self.latest_details = ([], 0)
         self.custom_details = ([], 0)
+        # Hojas donde va cada clase ({etiqueta: cuadrilátero en la imagen de análisis}); las pone el programa. Sobre
+        # su hoja, un residuo se ve peor (fondo de color que no había al entrenar): ahí basta menos confianza.
+        self.zones = {}
         self.status = 'Cargando detector de objetos...'
         self.stop = threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -188,7 +199,7 @@ class WasteDetector:
             settings.update({'sync': False})
             if not Path(self.model_path).is_file():
                 raise RuntimeError('Falta el modelo local: ' + self.model_path)
-            from vision_residuos import KEEP_CONF, MODEL_LOCK, StableObjects, category, merge_observations, small_enough
+            from vision_residuos import KEEP_CONF, MODEL_LOCK, StableObjects, category, merge_observations, one_label, small_enough
             from vision_zoom import detail_sample, restore_crop, to_work
             with MODEL_LOCK:
                 model = YOLO(self.model_path)
@@ -218,17 +229,28 @@ class WasteDetector:
                 own = None
                 if self.custom_path and Path(self.custom_path).is_file():
                     own = YOLO(self.custom_path)
+                    # Se analiza al mismo tamaño con el que se entrenó (960 el primero, 800 el de caja y lata).
+                    own_size = int((getattr(own, 'ckpt', None) or {}).get('train_args', {}).get('imgsz', 960))
+                if self.generic is None:
+                    self.generic = not (own is not None and 'lata' in own.names.values())
                     own.predict(np.zeros((480, 640, 3), np.uint8), imgsz=640, conf=KEEP_CONF, device=device, verbose=False)
+                finder = None
+                if self.robot_path and Path(self.robot_path).is_file():
+                    finder = YOLO(self.robot_path)
+                    finder.predict(np.zeros((480, 640, 3), np.uint8), imgsz=640, conf=.4, device=device, verbose=False)
+                    self.robot_ready = True
             def detect(image, size):
                 result = model.predict(image, imgsz=size, conf=KEEP_CONF, classes=ids, device=device, verbose=False)[0]
                 return [(b.xyxy[0].cpu().numpy(), category(model.names[int(b.cls.item())]), float(b.conf.item()))
                         for b in result.boxes]
             stable = StableObjects()
-            # Más exigente que los genéricos: sus objetos reales puntuaban 0,70-0,99 y lo que confundía en
-            # imágenes de otra cámara, 0,26-0,53. Nuevo desde 0,6; ya seguido, desde 0,3.
-            own_stable = StableObjects(new_conf=.6)
-            self.status = (f'Detector activo: {len(ids)} categorias | ' + ('GPU' if device == 'mps' else 'CPU') +
-                           (' | modelo propio' if own is not None else ''))
+            # Más exigente que los genéricos. El primero (caja, envoltura, papel) confundía con 0,26-0,53 en
+            # imágenes de otra cámara: desde 0,6. El de caja y lata (28/10), con muchos ejemplos del mueble, la
+            # cinta y el robot como «no residuo»: desde 0,5 (96 % de cajas y 89 % de latas en imágenes no vistas).
+            own_stable = StableObjects(new_conf=.5 if own is not None and 'lata' in own.names.values() else .6)
+            self.status = ((f'Detector activo: {len(ids)} categorias | ' if self.generic else 'Detector: solo residuos entrenados | ') +
+                           ('GPU' if device == 'mps' else 'CPU') +
+                           (' | modelo propio' if own is not None else '') + (' | robot' if finder is not None else ''))
             last = 0
             while not self.stop.is_set():
                 sample = detail_sample(self.camera)
@@ -239,28 +261,47 @@ class WasteDetector:
                 last = stamp
                 scale = full.shape[1] / frame.shape[1]
                 # Con GPU se analiza la imagen original del teléfono (hasta 1280 px); sin ella, la de 640.
-                if device == 'mps':
+                if not self.generic:
+                    boxes = []
+                elif device == 'mps':
                     boxes = to_work(detect(full, min(1280, max(full.shape[:2]))), scale)
                 else:
                     boxes = detect(frame, 640)
                 # El recorte del zoom sale de la imagen original: con el teléfono aporta detalle real.
                 region = self.focus.region(full.shape) if self.focus is not None else None
-                if region is not None:
+                if region is not None and self.generic:
                     x1,y1,x2,y2 = region
                     zoomed = restore_crop(detect(full[y1:y2,x1:x2], 640), region, full.shape)
                     boxes = merge_observations(boxes, to_work(zoomed, scale))
                 if own is not None:
-                    # Se analiza la imagen original a 960 px, el mismo tamaño con el que se entrenó.
-                    result = own.predict(full, imgsz=960, conf=.3, device=device, verbose=False)[0]
-                    found = small_enough([(b.xyxy[0].cpu().numpy(), own.names[int(b.cls.item())], float(b.conf.item()))
-                                          for b in result.boxes], full.shape)
-                    self.custom_details = (own_stable.update(to_work(found, scale), stamp), stamp)
+                    result = own.predict(full, imgsz=own_size, conf=.2, device=device, verbose=False)[0]
+                    found = one_label(small_enough([(b.xyxy[0].cpu().numpy(), own.names[int(b.cls.item())], float(b.conf.item()))
+                                                    for b in result.boxes], full.shape))
+                    found = [(b, n, on_own_sheet(b, n, c, self.zones) if self.zones else c) for b, n, c in to_work(found, scale)]
+                    self.custom_details = (own_stable.update(found, stamp), stamp)
+                if finder is not None:
+                    result = finder.predict(full, imgsz=640, conf=.4, device=device, verbose=False)[0]
+                    hits = [(b.xyxy[0].cpu().numpy() / scale, float(b.conf.item())) for b in result.boxes]
+                    # Con la imagen analizada: el programa empieza a seguirlo ahí y lo lleva a la actual.
+                    self.robot = (sorted(hits, key=lambda h: -h[1]), stamp, frame)
                 details = stable.update(boxes,stamp)
                 self.latest_details = (details,stamp)
                 self.latest = ([(b,n,c) for b,n,c,_ in details], stamp)
                 self.stop.wait(.12)
         except Exception as exc:
             self.status = 'Detector no disponible: ' + str(exc)
+
+
+def on_own_sheet(box, label, confidence, zones):
+    """Confianza para una detección: sobre la hoja de su clase (o a menos de 15 px), desde 0,2 vale como 0,5 (la lata
+    sobre la hoja amarilla salía con 0,16-0,64 y se perdía). Fuera de su hoja, la de siempre."""
+    quad = zones.get(label)
+    if quad is None or confidence < .2:
+        return confidence
+    center = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
+    if cv2.pointPolygonTest(np.float32(quad), (float(center[0]), float(center[1])), True) > -15:
+        return max(confidence, .5)
+    return confidence
 
 
 class CommandState:
@@ -298,8 +339,24 @@ class BluetoothGuard:
         self.status = 'Buscando Ranger por Bluetooth...'
         robot = RangerBluetooth(self.name)
         # Deadline menor que el watchdog; no esperar 3 segundos ante una avería.
+        slow = 0
         async def send(c):
-            return await asyncio.wait_for(robot.enviar(c), .45)
+            nonlocal slow
+            try:
+                result = await asyncio.wait_for(robot.enviar(c), .45)
+            except TimeoutError:
+                # Una confirmación que tarda no corta la conexión (2/11: un solo retraso al empujar la desconectaba y
+                # había que pulsar C, E y G). Es seguro: el firmware para los motores a los 600 ms sin órdenes.
+                # Tres seguidos sí: el enlace está caído.
+                slow += 1
+                if slow >= 3:
+                    raise
+                self.status = f'Bluetooth lento ({slow}/3): se reintenta'
+                return None
+            if slow:
+                slow = 0
+                self.status = 'Bluetooth conectado | LED apagados | Aviso por buzzer'
+            return result
         try:
             await robot.conectar()
             await send('x')
