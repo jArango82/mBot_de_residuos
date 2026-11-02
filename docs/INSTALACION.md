@@ -1,76 +1,126 @@
-# Instalación por sistema operativo
+# Instalación
 
-[Volver al README](../README.md) · [Uso](USO.md) · [Problemas](PROBLEMAS.md)
+Actualizado: 2 de noviembre de 2026
 
-## Actualización V2
+¿Empiezas desde cero? Lee primero la [Guía de estudio](GUIA_DE_ESTUDIO.md).
 
-Consulta [Operación V2](OPERACION_V2.md) para actualizar la placa antes de usar BLE y abrir el dashboard. La carga automática se compiló con mBlock en Mac; Windows/Linux necesitan la placa ya actualizada y siguen sin validación física. Para solo BLE se requieren ahora Bleak y pyserial.
+[Inicio](../README.md) · [Uso](USO.md) · [Problemas](PROBLEMAS.md)
 
-## Antes de empezar
+El proyecto completo (cámara, detección, robot, panel) **solo funciona en Mac**. En Windows y Linux solo se puede usar la consola Bluetooth del robot, y sin probar.
 
-Puedes usar **solo Bluetooth**, sin webcam ni modelos, o **visión en Mac**, con o sin robot. Para Bluetooth necesitas un Ranger encendido, módulo BLE compatible con el protocolo del proyecto y el [firmware receptor](ROBOT.md). No todos los módulos llamados Bluetooth son BLE ni usan las mismas características.
+| Sistema | Qué funciona |
+|---|---|
+| macOS (probado en un Mac con chip Apple M5) | Todo |
+| Windows 11 | Solo la consola Bluetooth ([Robot](ROBOT.md)). Sin probar con el robot. |
+| Linux | Solo la consola Bluetooth. Sin probar con el robot. |
 
-Descarga el repositorio con GitHub Desktop, o con Git:
+## Qué necesitas
 
-```sh
-git clone https://github.com/jArango82/mBot_de_residuos.git
-cd mBot_de_residuos
-```
+| Cosa | Para qué |
+|---|---|
+| Mac con macOS | Ejecutar el programa. Con chip Apple los detectores van mucho más rápido. |
+| Python 3.13, Git y curl | El programa está en Python. Git hace falta para instalar CLIP; curl, para bajar los modelos. |
+| Unos 3 GB libres | Los modelos generales ocupan algo más de 1 GB; las bibliotecas, otro tanto. |
+| Conexión a Internet | Solo durante la instalación. |
+| Teléfono con Camo (se usó un Samsung Galaxy S24 Ultra), o una webcam Microsoft LifeCam | La cámara. Nunca se usa la del Mac. |
+| mBot Ranger con el firmware V2 | El robot ([Operación](OPERACION_V2.md#firmware-v2-qué-es-y-cómo-se-carga)). |
+| Los dos modelos propios, **pedidos a Juan** | Reconocer los cinco residuos y el robot. No están en GitHub. |
+| Cinta aislante negra y dos hojas de papel, amarilla y roja | La escena ([Uso](USO.md#antes-de-empezar-el-montaje)). |
+| n8n y una cuenta de Google (opcional) | Apuntar los residuos en Google Sheets ([N8N.md](N8N.md)). |
 
-También puedes descargar el ZIP desde GitHub y extraerlo. Abre la terminal dentro de la carpeta que contiene `README.md` y `outputs`. Todos los comandos siguientes parten de esa carpeta. Si la ruta tiene espacios, escríbela entre comillas.
+## macOS, paso a paso
 
-Se utilizó **Python 3.13** en el Mac original. Para el controlador BLE se necesita Python 3.11 o posterior por el uso de `asyncio.timeout`; utiliza 3.13 para seguir estas instrucciones. La instalación completa de visión fuera del equipo original no está validada. Reserva varios GB de disco: solo los modelos superan 1 GB y las bibliotecas ocupan espacio adicional.
+Todos los comandos se escriben en **Terminal**, dentro de la carpeta del proyecto (la que contiene `README.md` y `outputs`). Si la ruta tiene espacios, escríbela entre comillas.
 
-## macOS: visión y Bluetooth
+1. **Descarga el proyecto** con GitHub Desktop, o con Git:
 
-Instala Python 3.13 y Git desde sus distribuidores oficiales si no los tienes. El preparador también necesita `curl` en la terminal. Comprueba:
+   ```sh
+   git clone https://github.com/jArango82/mBot_de_residuos.git
+   cd mBot_de_residuos
+   ```
 
-```sh
-python3.13 --version
-git --version
-curl --version
-```
+2. **Comprueba Python, Git y curl.** Si falta alguno, instálalo desde su página oficial.
 
-Crea un entorno aislado para este proyecto:
+   ```sh
+   python3.13 --version
+   git --version
+   curl --version
+   ```
 
-```sh
-python3.13 -m venv work/venv
-work/venv/bin/python -m pip install --upgrade pip
-work/venv/bin/python -m pip install -r outputs/requirements_vision.txt
-work/venv/bin/python outputs/preparar_modelos.py
-work/venv/bin/python outputs/preparar_modelos.py --comprobar
-```
+3. **Crea el entorno de Python** del proyecto (una carpeta `work/venv` con sus propias bibliotecas, sin tocar el resto del Mac) e instala las bibliotecas:
 
-Git es necesario también para instalar CLIP, cuya dependencia apunta a un commit de su repositorio. El preparador descarga CLIP, YOLO y Grounding DINO desde sus fuentes oficiales y genera el detector con las categorías del proyecto. No abre la cámara ni conecta el robot. `--comprobar` solo confirma que existen cuatro archivos principales: no valida su contenido ni realiza una prueba de inferencia.
+   ```sh
+   python3.13 -m venv work/venv
+   work/venv/bin/python -m pip install --upgrade pip
+   work/venv/bin/python -m pip install -r outputs/requirements_vision.txt
+   ```
 
-Comprueba las funciones de OpenCV que utiliza el proyecto:
+4. **Descarga los modelos generales** (algo más de 1 GB: YOLO, YOLO-World, CLIP, Grounding DINO y la mejora de imagen). El preparador también genera `residuos-world-small.pt`. No abre la cámara ni conecta el robot.
 
-```sh
-work/venv/bin/python -c "import cv2; print(cv2.__version__); print('CSRT:', hasattr(cv2, 'TrackerCSRT_create')); print('ArUco:', hasattr(cv2, 'aruco'))"
-```
+   ```sh
+   work/venv/bin/python outputs/preparar_modelos.py
+   work/venv/bin/python outputs/preparar_modelos.py --comprobar
+   ```
 
-Los dos últimos valores deben ser `True`. Si no lo son, consulta [Problemas](PROBLEMAS.md).
+   `--comprobar` solo mira que los archivos existan; no comprueba que estén bien.
 
-Conecta una única cámara externa reconocida (Microsoft LifeCam o el Samsung como cámara web; consulta [Cámara](USO.md#cámara-lifecam-o-samsung-galaxy)) y ejecuta:
+5. **Copia los modelos propios.** Los entrenó Juan con sus fotos y **no están en GitHub**: son archivos pequeños (unos 5,5 MB cada uno), pero el proyecto no sube ningún modelo al repositorio. Pídele estos dos archivos y cópialos en `outputs/models/`:
 
-```sh
-work/venv/bin/python outputs/vision_linea_robot.py --solo-vision
-```
+   | Archivo | Qué reconoce |
+   |---|---|
+   | `residuos-propio.pt` | Caja de cartón, lata, botella de vidrio, botella de plástico y envase de blanqueador |
+   | `robot-propio.pt` | El robot |
 
-Autoriza el acceso a cámara para la aplicación que ejecuta Python cuando macOS lo solicite. Para Bluetooth autoriza también ese permiso. Cierra otras aplicaciones que estén utilizando la webcam o el robot.
+   Sin ellos el programa arranca, pero funciona mucho peor (ver [más abajo](#si-falta-algún-modelo)).
 
-Los accesos `.command` son para macOS, usan zsh y esperan el entorno en `work/venv`. Si Finder no los ejecuta, usa los comandos de Python de esta guía; no hace falta cambiar la seguridad del sistema. Para instalar **solo Bluetooth** puedes omitir toda la instalación de visión y seguir:
+6. **Comprueba OpenCV.** El seguimiento del robot necesita la función CSRT:
 
-```sh
-python3.13 -m venv work/venv
-work/venv/bin/python -m pip install bleak==3.0.2 pyserial==3.5
-work/venv/bin/python outputs/ranger_bluetooth.py --listar
-work/venv/bin/python outputs/ranger_bluetooth.py --comando p
-```
+   ```sh
+   work/venv/bin/python -c "import cv2; print(cv2.__version__, hasattr(cv2, 'TrackerCSRT_create'))"
+   ```
 
-## Windows: Bluetooth, sin cámara en esta versión
+   Debe terminar en `True`. Si no, ver [Problemas](PROBLEMAS.md#opencv-no-encuentra-csrt).
 
-Utiliza Windows 11 con un adaptador BLE y Python 3.13. Estas instrucciones son para **PowerShell**, abierto en la carpeta del proyecto. No se usan los accesos `.command` de Mac ni es necesario activar el entorno o modificar la política de ejecución de PowerShell.
+7. **Ejecuta las pruebas automáticas** (unos 20 s, sin cámara ni robot):
+
+   ```sh
+   work/venv/bin/python -m unittest discover -s tests
+   ```
+
+   Deben terminar con `Ran 149 tests` y `OK`.
+
+8. **Prepara la cámara.** Instala Camo en el teléfono y Camo Studio en el Mac y activa su extensión de cámara ([Uso](USO.md#cámara-lifecam-o-samsung-galaxy)). Comprueba que el Mac la ve:
+
+   ```sh
+   work/venv/bin/python outputs/vision_linea_robot.py --listar-camaras
+   ```
+
+9. **Primera prueba sin robot:**
+
+   ```sh
+   work/venv/bin/python outputs/vision_linea_robot.py --solo-vision
+   ```
+
+   macOS pedirá permiso de **Cámara** (y, con el robot, de **Bluetooth**) para la aplicación desde la que lo abres (Terminal). Acéptalo. La ventana debe mostrar el recuadro y los residuos; el panel, en http://127.0.0.1:8765.
+
+10. **Robot.** Si el robot ya tiene el firmware V2 (el de Juan lo tiene desde el 27/10), no hay que hacer nada. Si no, cárgalo con `outputs/Actualizar_Ranger.command`; necesita **mBlock** instalado en el Mac, porque usa sus herramientas para compilar ([Operación](OPERACION_V2.md#firmware-v2-qué-es-y-cómo-se-carga)). Comprueba la conexión con `work/venv/bin/python outputs/ranger_bluetooth.py --comando p` (debe pitar).
+
+11. **n8n (opcional).** n8n se instala aparte en `work/n8n` (fuera de GitHub) y se abre con `outputs/n8n/Abrir_n8n.command`. Los pasos están en [N8N.md](N8N.md). Sin n8n, todo lo demás funciona igual.
+
+Los archivos `.command` son lanzadores de macOS y esperan el entorno en `work/venv`. Si Finder no deja abrirlos, ejecuta en Terminal el comando equivalente de [Uso](USO.md); no hace falta cambiar la seguridad del Mac.
+
+## Si falta algún modelo
+
+| Falta | Qué pasa |
+|---|---|
+| `residuos-propio.pt` | Se usan los detectores generales (YOLO-World, Grounding DINO + CLIP). No distinguen botella de vidrio de plástico, no reconocen el envase de blanqueador y se equivocan mucho más. Una «botella» sin hoja se sacaría del recuadro en vez de llevarla a una hoja. |
+| `robot-propio.pt` | El robot lo busca Grounding DINO cada dos análisis (más de 1 s cada uno, en el procesador). Con el robot pequeño en la imagen falla a menudo; queda `R` para elegirlo con el ratón. |
+| `residuos-world-small.pt` u otro modelo general | El panel de la ventana dice «Detector no disponible»: sin ese archivo no arranca ningún detector, tampoco los propios. Vuelve a ejecutar `preparar_modelos.py`. |
+| `superres/FSRCNN_x2.pb` | Solo falta la mejora de imagen del zoom; todo lo demás funciona. |
+
+## Windows: solo Bluetooth
+
+Con Windows 11, un adaptador Bluetooth de bajo consumo (BLE) y Python 3.13, en **PowerShell** dentro de la carpeta del proyecto:
 
 ```powershell
 py -3.13 --version
@@ -82,23 +132,20 @@ py -3.13 -m venv work/venv
 .\work\venv\Scripts\python.exe outputs/ranger_bluetooth.py
 ```
 
-Si el robot tiene otro nombre, añade `--nombre "NOMBRE_ENCONTRADO"`. Activa Bluetooth en Windows y desconecta mBlock u otras aplicaciones del robot. En V2 la prueba `p` produce un pitido sin modificar motores; no envía un movimiento.
+Activa el Bluetooth de Windows y cierra mBlock u otros programas conectados al robot. Si el robot tiene otro nombre, añade `--nombre "NOMBRE_ENCONTRADO"`. **No ejecutes los programas de cámara en Windows**: usan AVFoundation, que solo existe en Mac.
 
-**No ejecutes los programas de cámara esperando que funcionen aquí:** importan AVFoundation y usan el selector de dispositivos de Mac. No existe todavía un lanzador de visión para Windows. El control BLE tampoco ha sido probado físicamente en Windows con este montaje.
+## Linux: solo Bluetooth
 
-## Linux: Bluetooth, sin cámara en esta versión
-
-Necesitas Python 3.11 o posterior, el módulo `venv`, un adaptador BLE y el servicio BlueZ. Las versiones y paquetes dependen de tu distribución. Ejemplo para Debian/Ubuntu:
+Necesitas Python 3.11 o posterior, el módulo `venv`, un adaptador BLE y el servicio BlueZ (5.55 o posterior). Ejemplo en Debian o Ubuntu:
 
 ```sh
 sudo apt update
 sudo apt install python3 python3-venv bluez
 python3 --version
 bluetoothctl --version
-systemctl status bluetooth
 ```
 
-Comprueba que Python sea al menos 3.11 y BlueZ al menos 5.55. Si tu distribución ofrece versiones anteriores, actualízalas por sus procedimientos oficiales antes de continuar. Si Bluetooth está desactivado, actívalo en la configuración del escritorio. Después, desde la carpeta del proyecto:
+Después, en la carpeta del proyecto y como usuario normal (sin `sudo`):
 
 ```sh
 python3 -m venv work/venv
@@ -106,19 +153,14 @@ work/venv/bin/python -m pip install --upgrade pip
 work/venv/bin/python -m pip install bleak==3.0.2 pyserial==3.5
 work/venv/bin/python outputs/ranger_bluetooth.py --listar
 work/venv/bin/python outputs/ranger_bluetooth.py --comando p
-work/venv/bin/python outputs/ranger_bluetooth.py
 ```
 
-Añade `--nombre "NOMBRE_ENCONTRADO"` si es necesario. Ejecuta el programa como usuario normal, no con `sudo`. Las políticas de acceso a BlueZ/D-Bus dependen de la distribución; consulta sus permisos si se deniega la conexión. Estos pasos no se han probado físicamente en Linux con este robot.
+Si se deniega la conexión, revisa los permisos de BlueZ de tu distribución. La cámara no funciona en Linux: habría que adaptar el código de cámara, no basta con instalar OpenCV.
 
-La visión sigue pendiente en Linux: no basta con instalar OpenCV ni con indicar `/dev/video0`. Hay que adaptar la clase de cámara, la selección explícita de webcam externa y sus comprobaciones. No se proporciona una receta de cámara que el código actual no pueda ejecutar.
+## Actualizar o llevar el proyecto a otro Mac
 
-## Actualizar o trasladar el proyecto
-
-Usa Pull origin en GitHub Desktop o `git pull` si no tienes cambios locales que entren en conflicto. Si cambian las dependencias, vuelve a instalar el archivo de requisitos en Mac. Ejecuta el preparador si faltan modelos. No borres los modelos para actualizar el código.
-
-En otro ordenador vuelve a crear `work/venv`; las rutas y ejecutables del entorno no son portables. Los modelos se pueden volver a descargar. La opción BLE requiere únicamente Bleak, sin instalar las bibliotecas de visión.
-
-## Referencias de plataforma
-
-Los requisitos de la biblioteca no equivalen a pruebas de este proyecto. Bleak documenta sus plataformas en [su documentación oficial](https://bleak.readthedocs.io/en/develop/contributing.html). Los motores de captura por sistema están descritos en [OpenCV](https://docs.opencv.org/4.5.3/d4/d15/group__videoio__flags__base.html). La restricción actual de la cámara se comprobó directamente en `outputs/vision_ranger.py` y `outputs/camaras_mac.py`.
+- Para traer cambios: «Pull origin» en GitHub Desktop o `git pull`.
+- Si cambió `requirements_vision.txt`, vuelve a ejecutar el paso 3.
+- No borres los modelos para actualizar: Git no los toca.
+- En otro Mac, crea de nuevo `work/venv` (no se puede copiar de un ordenador a otro), vuelve a descargar los modelos generales y copia los dos modelos propios.
+- `work/` no se sube a GitHub: fotos, grabaciones, la base de datos del conteo y n8n se quedan en el Mac donde se crearon. Una copia del repositorio no es una copia de seguridad de esos archivos.

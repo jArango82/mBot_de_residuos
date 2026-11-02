@@ -1,61 +1,120 @@
 # Estado real del proyecto
 
-Fecha de esta documentación: **20 de octubre de 2026**. [Inicio](../README.md)
+Actualizado: 2 de noviembre de 2026
 
-## Ajuste del 26 de octubre: Samsung como cámara
+¿Empiezas desde cero? Lee primero la [Guía de estudio](GUIA_DE_ESTUDIO.md).
 
-La selección de cámara acepta, además de la LifeCam, un Samsung Galaxy como cámara web (modo USB o Camo), con `--camara` y `--listar-camaras`; la integrada sigue rechazada. Con el teléfono se capta hasta 1280 px y el análisis se mantiene a 640 px de lado mayor; la imagen original se usa en el zoom y en los detectores del recorte. Se añadió parada si la imagen no cambia con el robot en marcha (cámara virtual congelada), se excluyen los puertos USB del teléfono al buscar el Ranger y los modelos se cargan de uno en uno (antes, una carga simultánea podía dejar el detector general «no disponible»). Después se probó con el teléfono real mediante Camo (el S24 Ultra no ofrece cámara web USB): imagen del recinto a 1280 × 720 y ~30 fps, recuadro seleccionado automáticamente. Se añadieron: marca de agua de Camo ignorada, detector general en la gráfica del Mac a 1280 px, histéresis y voto de etiqueta, prioridad de detecciones concretas sobre «objeto por identificar» y una sola descripción por caja en el detector de papel (antes el papel salía como envoltura). También se corrigió la confusión de cajas y papel con envolturas (alternativa «a cardboard box» y regla de color para objetos arrugados sin color). En una grabación real (caja de cartón, papel arrugado y rollo de cinta, con el teléfono moviéndose), reproducida en tiempo real: caja bien etiquetada en el 78 % de las muestras (antes 21 %), papel en el 40 % (antes 0 %) y muestras con alguna etiqueta errónea en el 30 % (antes 68 %). La envoltura verde real se siguió reconociendo en sus seis variantes de control. Con el teléfono fijo y otra escena (dos cajas de medicamento y una servilleta), se añadió el reconocimiento de cajas pequeñas en el detector de papel, la alternancia con zoom y la permanencia de objetos quietos. La caja naranja pasó del 0 % al 98–100 % de las muestras y la servilleta del 0 % al 61–81 %, sin etiquetas erróneas; la caja blanca y azul sigue sin detectarse. Son escenas pequeñas: no son métricas generales de precisión.
+[Inicio](../README.md) · [Uso](USO.md) · [Arquitectura](ARQUITECTURA.md) · [Problemas](PROBLEMAS.md)
 
-Ese mismo día se entrenó un **detector propio** (YOLO11n) con 91 fotos etiquetadas y revisadas. Se comprobó con 46 fotogramas de otra sesión: mAP50 0,995, y en tiempo real las dos cajas y la servilleta se muestran el 100 % del tiempo. Solo conoce esos objetos concretos y la envoltura no se ha comprobado; ver [Entrenamiento](ENTRENAMIENTO.md). Movimiento del robot con esta cámara: no probado.
+Este documento dice **qué funciona de verdad y cómo lo sabemos**. Usamos tres niveles; al exponer, conviene no mezclarlos:
 
-## Ajuste del 20 de octubre
+| Nivel | Qué significa |
+|---|---|
+| **Implementado** | El código existe y pasa las pruebas automáticas, pero no se ha visto funcionar con el robot real. |
+| **Probado en simulación** | Se comprobó con un robot y una cámara simulados en el ordenador, con ruido y retrasos parecidos a los reales. Sirve para encontrar fallos; no demuestra que funcione en el suelo. |
+| **Probado físicamente** | Se vio funcionar con el robot, la cámara y los residuos reales (en casa de Juan, con luz de día y la cámara fija). |
 
-Se añadió reconocimiento específico de envolturas pequeñas con giros adaptativos y verificación CLIP. La envoltura del montaje fue detectada en vivo con la cámara inclinada y en seis variantes de una captura (cuatro giros y dos perspectivas simuladas). Se añadieron pruebas de transformación de coordenadas, caducidad y no duplicación. No se garantiza reconocimiento de todos los objetos o vistas.
+## En pocas palabras
 
-## Cambios de esta entrega
+Una cámara (un Samsung Galaxy S24 Ultra conectado al Mac con la aplicación Camo) mira desde arriba un recuadro de cinta negra en el suelo. Dentro del recuadro hay dos hojas de papel de color. El programa reconoce cinco tipos de residuo y el robot mBot Ranger. Al pulsar **G**, el robot empuja cada residuo hasta su hoja:
 
-Implementados: actualizador USB con comprobación de versión, firmware V2 compilado, alarma de salida sin frenado por borde y dashboard con conteo persistente. Robot no disponible: carga y prueba física pendientes. Ver [Operación V2](OPERACION_V2.md). El antiguo requisito del sensor que frene al ver negro queda aplazado para revisar su compatibilidad con el nuevo manejo.
+- Hoja **amarilla**, residuos **aprovechables**: caja de cartón, lata, botella de vidrio y botella de plástico.
+- Hoja **roja**, residuos **peligrosos**: envase de blanqueador. Si el programa duda entre botella de plástico y blanqueador, lo trata como peligroso.
 
-## Objetivo final
+Un panel web (http://127.0.0.1:8765) muestra la cámara en vivo y cuenta cada residuo que queda sobre su hoja. Cada residuo contado se envía a **n8n**, que lo apunta como fila en una hoja de Google Sheets y responde al panel.
 
-Una cámara cenital observa el área de trabajo, ubica residuos y robot, y permite planear su aproximación. El uso futuro del seguidor de línea debe revisarse: ahora el usuario solicita permitir el cruce y avisar. Ese objetivo completo **todavía no está implementado**.
+## Estado de cada parte
 
-## Implementado
+| Parte | Estado | Evidencia |
+|---|---|---|
+| Cámara externa (Samsung por Camo; LifeCam también sirve) | Probado físicamente | En uso desde el 26/10. La cámara del Mac se rechaza siempre. |
+| Recuadro de cinta automático | Probado físicamente **con la cámara fija** | Reconocido desde el principio en todas las pruebas del 2/11. Con el teléfono en la mano no llegó a confirmarse (prueba del 27/10). |
+| Hojas amarilla y roja | Probado físicamente | Reconocidas en las pruebas del 2/11, también con un residuo encima. |
+| Detector de los cinco residuos | Probado físicamente, **salvo la botella de vidrio** | Prueba del 2/11 (unos 15 min): lata vista en el 97 % de las imágenes, plástico 89 %, caja 84 %, blanqueador 80 %, vidrio solo 5 %. |
+| Robot reconocido solo, sin etiqueta | Probado físicamente | El detector propio del robot se usó en todas las pruebas del 2/11. Seleccionarlo con el ratón (`R`) queda de respaldo. |
+| Hacia dónde mira el robot, por sus orugas | Probado físicamente | En uso desde el 2/11. Error mediano medido: 5°. |
+| Firmware V2 en la placa del robot | Probado físicamente | Cargado el 27/10. Responde por USB y por Bluetooth. |
+| Llevar cada residuo a su hoja (tecla G) | Probado físicamente | 2/11, 14:02: blanqueador a la hoja roja y caja a la amarilla, contados a la primera. Ese día también llegaron a la amarilla la botella de plástico y la lata. |
+| Sacar del recuadro un residuo sin hoja | Probado físicamente con una versión anterior | 27-29/10, antes de que existieran las hojas. Hoy solo se usa si un residuo no tiene hoja asignada. |
+| Conteo y panel web con cámara en vivo | Probado físicamente | Contó en las pruebas del 2/11 (ver la cronología). |
+| Registro en Google Sheets con n8n | Probado físicamente | 2/11, 14:02: filas escritas en Google Sheets y respuesta de n8n en el panel en unos 2 s. |
+| Ruta óptima entre residuos, pinza para recoger | No existe | El robot va al residuo más cercano con el camino libre y lo empuja. |
+| Sensor de línea del robot | No se usa | Requisito antiguo aplazado a propósito (ver [Pendiente_Sensor_Linea.md](../outputs/Pendiente_Sensor_Linea.md)). |
+| Cámara en Windows o Linux | No existe | El código de cámara usa AVFoundation, que solo hay en Mac. En esos sistemas solo funciona la consola Bluetooth, y sin probar. |
+| Pruebas automáticas | 149 pruebas, todas pasan (comprobado el 2/11, unos 20 s) | `work/venv/bin/python -m unittest discover -s tests`. No usan cámara ni robot. |
 
-- Cámara externa en Mac (LifeCam a 640 × 480; Samsung/Camo hasta 1280 px, analizado a 640 px), sin recurrir a la integrada.
-- Segmentos de cinta y recuadro con selección automática y estabilización.
-- Detección abierta de posibles residuos con YOLO-World y detector especial de papel Grounding DINO + CLIP.
-- Seguimiento del robot por selección manual inicial CSRT, sin marcador impreso en el modo actual.
-- BLE con confirmación de comandos, control de motores, luces y buzzer.
-- Pasos manuales permitidos cerca/fuera del borde, aviso al salir y parada silenciosa si se pierde vigilancia; temporizador en firmware.
-- Script de descarga de modelos para mantener el repositorio sin binarios grandes.
+## Cronología de las pruebas físicas
 
-## Qué se comprobó y qué no
+| Fecha | Qué se probó | Resultado |
+|---|---|---|
+| 29/9 | Primer receptor cargado por USB | LED, buzzer y respuestas por Bluetooth correctas. Sin movimiento. |
+| 26/10 | Samsung como cámara, por Camo | Imagen del recuadro a ~30 imágenes por segundo y recuadro elegido solo. Robot sin moverse. |
+| 27/10 | Firmware V2 cargado. Primeras pruebas con `G` | El robot llegó al residuo y, en otra prueba, sacó residuos del recuadro y llegó a «Recuadro limpio» varias veces. Fallos: seguimiento perdido al empujar, robot tomado por «caja», robot que quedaba fuera. |
+| 27/10 | Cámara en la mano | El robot se encontró solo, pero el recuadro no llegó a confirmarse (imagen muy movida). |
+| 28/10 | 3.ª prueba del empuje fuera del recuadro | 6 salidas contadas, pero 11 paradas por «el robot salió del recuadro» y latas pisadas. Se cambió: ahora el robot vuelve solo. |
+| 29/10 | 4.ª prueba del empuje | 5 salidas contadas (2 cajas, 3 latas), 2 veces «Recuadro limpio», ninguna parada por salir. 8 avisos falsos de «se subió encima» (corregido después). |
+| 1/11 | Grabación con las hojas y poca luz | Sirvió para corregir dobles detecciones (la hoja roja tomada por «caja»). La prueba de la tarde no llegó a empezar: imagen borrosa y teléfono sin batería. |
+| 2/11, 11:32 | Primera prueba en vivo de las cinco clases (~15 min) | El robot llevó plástico, lata y caja a la amarilla y el blanqueador a la roja; el panel contó 5. Fallos: Bluetooth cortado al empujar, un blanqueador no contado, vidrio casi nunca visto. Corregidos el conteo y el Bluetooth. |
+| 2/11, 12:02 | Con esos arreglos | Caja a la amarilla y blanqueador a la roja, contados a la primera. |
+| 2/11, 12:24 | Ajustes de giro | Fue peor; Juan pidió volver a la versión anterior. |
+| 2/11, 12:44-12:48 | Primera versión del rumbo por las orugas | «Daba vueltas en su sitio». Se corrigió: nunca dos giros seguidos sin avanzar, y un residuo cuenta como dejado si el 40 % de él pisa la hoja. |
+| 2/11, 12:55 | Orugas corregidas | Blanqueador a la roja en ~13 s, contado a la primera. Después, una caja pegada a la cinta: el robot salió del recuadro para colocarse detrás, se perdió de vista y se cortó el Bluetooth (problema abierto). |
+| 2/11, 13:00 | Repetición | Blanqueador a la roja y caja a la amarilla, los dos contados; «Todo clasificado». |
+| 2/11, 13:54 | Con n8n | Panel con «Automatización n8n: CONECTADO». El blanqueador resbaló junto a la hoja y no se contó; corregido. |
+| 2/11, 14:02 | Versión actual | Blanqueador a la roja y caja a la amarilla, contados a la primera, apuntados en Google Sheets, respuesta de n8n en el panel en ~2 s. |
 
-Se utilizó la LifeCam real en macOS. Se corrigió una selección inicial que abría la cámara integrada. Se trabajó con imágenes reales de cinta, botella, papel y un objeto confundido con papel; se añadió verificación para reducir esa confusión. No hay un conjunto de evaluación amplio ni métricas de precisión por categoría.
+## Resultados medidos
 
-El 29 de septiembre se cargó el receptor por USB y se verificaron 6626 bytes. El usuario confirmó LED rojos y buzzer. Se obtuvieron respuestas del receptor por BLE y se probó el buzzer; USB seguía conectado para alimentación. No se ha completado una prueba física de desplazamiento ni de frenado junto al borde.
+Todas las cifras salen de mediciones reales en el Mac del proyecto. Son escenas pequeñas y de una sola casa: **no son precisiones generales**.
 
-Durante el desarrollo se ejecutaron pruebas locales de geometría, selección de cámara, estabilidad del borde, caducidad de detecciones y orden de comandos. Esos archivos están en el área local `work`, excluida de GitHub; **ahora se incluye `tests/test_operacion.py` con pruebas reproducibles de V2**, sin imágenes privadas. Una comprobación sintética no sustituye la validación del robot real.
+**Detector de los cinco residuos** (`residuos-propio.pt`, entrenado el 1/11 con 959 fotos):
 
-La presencia de los modelos se comprobó en el Mac original. La documentación no implica que se haya ensayado una instalación limpia en cada sistema. Windows y Linux no se han probado con este hardware. La biblioteca BLE ofrece soporte para esos sistemas, pero la cámara del proyecto es exclusivamente macOS.
+| Clase | Fotos no usadas para aprender (80, misma sesión y escena) | En vivo, 2/11 (% de imágenes en que se vio) |
+|---|---|---|
+| Caja de cartón | 100 % | 84 % |
+| Lata | 82-83 % | 97 % |
+| Botella de vidrio | 72-88 % | 5 % |
+| Botella de plástico | 89 % | 89 % |
+| Envase de blanqueador | 96-99 % | 80 % |
 
-## Límites de interpretación
+Las dos cifras de la primera columna dependen de cuánto se exige que la caja dibujada coincida con la real. En esas fotos de prueba no hubo ninguna confusión entre plástico y blanqueador. Ojo: las fotos de prueba son de la misma sesión de fotos que las de aprendizaje (otro momento de la grabación), así que la cifra es optimista. En vivo, el vidrio tumbado se confundía con una lata; **se decidió no seguir con el vidrio**.
 
-- Una etiqueta no demuestra que un objeto sea residuo ni identifica con fiabilidad su material. Las botellas se muestran sin distinguir vidrio/plástico.
-- El detector puede confundir tapas, superficies y objetos cotidianos, o no reconocer papel. Rechazar casos ambiguos reduce falsos positivos pero también puede omitir residuos.
-- El seguimiento del robot puede desviarse, especialmente con reflejos, oclusiones o cambios de iluminación.
-- El borde dibujado puede ser una referencia retenida; el estado de visibilidad decide si se permite mover.
-- En V2 se permite cruzar la cinta. El aviso se basa en píxeles y puede fallar por errores visuales; no hay bloqueo físico del borde.
-- No existe selección automática de objetivo, planificación de ruta, aproximación, recogida ni clasificación física de residuos.
+**Detector del robot** (`robot-propio.pt`, 28/10): encontró el robot en 74 de 74 imágenes no vistas y no inventó ninguno en 9 imágenes sin robot, en ~11 ms. El método anterior (Grounding DINO) lo encontraba en 1 de esas 74.
 
-## Próximos trabajos
+**Rumbo por las orugas** (2/11): comparado con hacia dónde se movió de verdad el robot en 88 tramos rectos de 9 grabaciones, error mediano 5°, el 81 % por debajo de 15°, y un 10 % de errores grandes (toma la dirección perpendicular), que la navegación descarta. Antes, el rumbo se medía con pasos de prueba y tenía unos 20° de error.
 
-1. Confirmar el uso futuro del sensor físico antes de implementarlo: el nuevo comportamiento permite cruzar y avisa, por lo que la parada al detectar negro ya no se debe activar implícitamente.
-2. Validar movimiento, sentido de motores, alimentación solo con baterías y distancias de parada con el robot disponible.
-3. Adaptar la cámara a Windows/Linux conservando selección explícita de webcam externa y detección de pérdida de vídeo; probar en hardware real.
-4. Reunir y etiquetar ejemplos reales para medir errores, ajustar categorías o entrenar un detector.
-5. Calibrar geometría y orientación, diseñar navegación y mecanismo de recogida; integrar después de validar los límites.
-6. Publicar pruebas reproducibles sin capturas privadas y verificar instalación limpia.
+**Simulación** (no son pruebas físicas):
 
-El requisito detallado del sensor está en [Pendiente_Sensor_Linea.md](../outputs/Pendiente_Sensor_Linea.md). Las tareas físicas y de navegación indicadas siguen pendientes.
+- Llevar blanqueador y lata a sus hojas (2/11), 60 escenas con ruido y retraso: 56 bien, unos 30 s por escena. Antes de usar las orugas eran 51 bien y 38 s.
+- Sacar residuos del recuadro, el modo anterior sin hojas (28/10): 139 de 139 escenas bien en cada uno de tres escenarios de velocidad.
+
+## Lo que no hace (todavía)
+
+- No elige una ruta óptima: va al residuo más cercano que tenga el camino libre.
+- No recoge: empuja. No tiene pinza.
+- No usa el sensor de línea del robot.
+- No funciona la cámara en Windows ni Linux.
+- No se ha medido el retraso real de la imagen de Camo.
+- No se ha comprobado en condiciones de exposición (otra luz, otro suelo, gente alrededor).
+
+## Problemas abiertos
+
+Resumen; la explicación y qué hacer están en [Problemas](PROBLEMAS.md#problemas-conocidos-del-prototipo).
+
+1. **Residuos pegados a la cinta**: para colocarse detrás, el robot sale del recuadro y puede perderse de vista.
+2. **Todavía gira bastante** para colocarse detrás de cada residuo (unos 15 s con la caja).
+3. **La botella de vidrio se detecta poco** (decidido no seguir con ella).
+4. **El Bluetooth puede cortarse**: hay que pulsar C, E y G.
+5. **«Recuadro perdido» desarma el robot** a propósito: hay que pulsar E y G.
+6. **Recuadro frágil** si la cámara se mueve o la luz es mala.
+7. **La hoja amarilla es pequeña**: un residuo empujado puede sacar a otro; Juan recoge a mano cada residuo en cuanto se cuenta.
+8. **Solo funciona en Mac.**
+
+## Decisiones que se mantienen
+
+- Siempre una cámara externa; la del Mac, nunca.
+- Sin etiqueta impresa en el robot: se reconoce por su aspecto.
+- Los LED del robot van apagados durante la visión (su luz confundía el seguimiento).
+- A mano, el robot puede acercarse a la cinta y cruzarla; el buzzer avisa al salir. En automático tampoco se para al salir: vuelve solo.
+- Se conservan todas las paradas de seguridad (ver [Operación](OPERACION_V2.md#seguridad-cuándo-se-para-el-robot)).
+- El sensor de línea no se activa.

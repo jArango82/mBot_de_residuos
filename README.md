@@ -1,64 +1,39 @@
 # mBot de residuos
 
-Prototipo educativo para observar una zona con una webcam, detectar posibles residuos y controlar un **mBot Ranger** mediante letras enviadas por Bluetooth. El objetivo futuro es que recoja residuos sin salir de la zona delimitada con cinta negra.
+Prototipo de **robot que separa residuos de forma autónoma**. Una cámara mira desde arriba una zona marcada con cinta negra. El programa reconoce cada residuo con inteligencia artificial entrenada con fotos propias, y un **mBot Ranger** lleva cada uno a su hoja de color:
 
-**Estado al 19 de octubre de 2026:** hay detección visual experimental y control manual del robot. **Todavía no recoge residuos ni navega automáticamente hacia ellos.**
+- **Hoja amarilla (aprovechables):** caja de cartón, lata, botella de vidrio y botella de plástico.
+- **Hoja roja (peligrosos):** envase de blanqueador.
 
-## Qué hay disponible
+Un panel web cuenta cada residuo separado y muestra la cámara en vivo. Además, **n8n** apunta cada separación en Google Sheets y responde al panel.
 
-- Detección automática del recuadro de cinta negra, con reinicio de selección.
-- Detección de posibles botellas, latas, vasos, cartón, bolsas, envolturas, papel y otros objetos. Puede equivocarse u omitir residuos.
-- Un detector adicional de papel y envolturas pequeñas, con búsqueda en distintas orientaciones y verificación visual para reducir falsos positivos.
-- Seguimiento del Ranger sin etiqueta impresa: se selecciona una vez con el ratón.
-- Control manual por Bluetooth con `w`, `a`, `s`, `d`, parada, luces y buzzer.
-- Aviso sonoro al salir del borde, sin bloquear el manejo por proximidad o cruce. Se mantiene parada silenciosa por pérdida de visión y los LED apagados.
-- Firmware V2 actualizable por USB, con pitido sin frenado y parada tras 600 ms sin nuevas órdenes de movimiento.
-- Dashboard local con conteo de salidas del recinto, categorías, gráficos, mapa, historial y exportación CSV.
+**Estado al 2 de noviembre de 2026:** funciona de punta a punta y está probado con el robot real. El robot llevó el envase de blanqueador a la hoja roja y la caja a la amarilla, y el panel los contó. n8n los apuntó en Google Sheets y respondió al panel. Es un prototipo y tiene límites conocidos: consulta [Estado](docs/ESTADO.md) y [Problemas conocidos](docs/PROBLEMAS.md).
 
-**Pendiente:** carga y validación física del firmware V2, revisión del futuro uso del sensor físico, adaptación de cámara a Windows/Linux, navegación y recogida. Una detección en pantalla no genera movimientos hacia el residuo.
-
-## Compatibilidad real
-
-- **Mac:** cámara y Bluetooth utilizados en el montaje original. La cámara externa puede ser la Microsoft LifeCam o un Samsung Galaxy usado como cámara web (modo USB o Camo); nunca se abre la integrada como alternativa. El uso con el Samsung está probado solo con simulaciones.
-- **Windows:** instrucciones para control Bluetooth. El código BLE utiliza una biblioteca compatible, pero este proyecto no se ha probado allí. La cámara de esta versión no funciona en Windows.
-- **Linux:** instrucciones para control Bluetooth con BlueZ. No probado en este proyecto. La cámara de esta versión no funciona en Linux.
-
-Instalar las dependencias no convierte la aplicación de cámara en multiplataforma: usa AVFoundation, exclusivo de Apple. Consulta las instrucciones de tu sistema antes de instalar.
-
-## Novedades V2
-
-Consulta [actualización USB, manejo sin frenado por borde y dashboard](docs/OPERACION_V2.md). Abre `outputs/Actualizar_Ranger.command` para esperar la conexión USB y actualizar. Abre `outputs/Abrir_Dashboard.command` para ver el panel en http://127.0.0.1:8765. Para registrar salidas, abre además la prueba de cámara.
-
-La versión V2 está compilada y probada por software; todavía no está cargada en el Ranger. La carga automática requiere las herramientas de mBlock del Mac.
+![El robot separando residuos: inicio, empuje y final](docs/imagenes/secuencia_separacion.jpg)
 
 ## Empieza aquí
 
-1. [Instalación en Mac, Windows y Linux](docs/INSTALACION.md): requisitos, comandos y comprobaciones.
-2. [Manual de uso](docs/USO.md): residuos, cinta, robot y teclas.
-3. [Bluetooth y firmware](docs/ROBOT.md): preparar la placa, enviar órdenes y escribir un script.
-4. [Estado y límites](docs/ESTADO.md): qué se verificó y qué falta.
-5. [Archivos y funcionamiento interno](docs/ARQUITECTURA.md): qué hace cada parte.
-6. [Solución de problemas](docs/PROBLEMAS.md): cámara, modelos, Bluetooth e instalación.
-7. [Recoger imágenes para entrenar](docs/ENTRENAMIENTO.md): fotos de tus residuos para un detector propio (preparación; entrenamiento pendiente).
+1. **[Guía de estudio](docs/GUIA_DE_ESTUDIO.md):** qué es, cómo funciona paso a paso, qué se hizo, resultados, límites, preguntas del profesor y glosario. **Léela primero.**
+2. [Manual de uso](docs/USO.md): teclas, panel y demostración.
+3. [Instalación](docs/INSTALACION.md): requisitos y modelos.
+4. [Automatización con n8n](docs/N8N.md): Google Sheets y respuesta al panel.
+5. [Robot, Bluetooth y firmware](docs/ROBOT.md).
+6. [Arquitectura](docs/ARQUITECTURA.md): qué hace cada archivo.
+7. [Entrenamiento del detector](docs/ENTRENAMIENTO.md).
+8. [Estado](docs/ESTADO.md) y [problemas conocidos](docs/PROBLEMAS.md).
 
-### Inicio rápido en un Mac ya preparado
+También hay un PDF con todo: [docs/mBot_de_residuos_documentacion.pdf](docs/mBot_de_residuos_documentacion.pdf).
 
-Desde la carpeta del proyecto:
+## Uso rápido (en el Mac del proyecto)
 
-```sh
-work/venv/bin/python outputs/vision_linea_robot.py --solo-vision
-```
+1. Doble clic en `outputs/n8n/Abrir_n8n.command` (n8n en http://localhost:5678).
+2. Doble clic en `outputs/Probar_Robot_Linea.command` (programa principal).
+3. Abrir el panel: http://127.0.0.1:8765.
+4. En la ventana del programa: **C** conectar el robot, **E** habilitar, **G** separar residuos, **Espacio** parar.
 
-También puedes abrir `outputs/Detectar_Residuos.command`. No necesita tener el robot conectado. Coloca la cámara (LifeCam o teléfono) fija encima de la zona y enfoca los residuos. Pulsa `t` para reiniciar la selección del borde y `q` para salir, con la ventana de cámara enfocada.
+## Requisitos importantes
 
-## Qué descarga GitHub
-
-El repositorio incluye código, configuración, documentación y proyectos mBlock. **No incluye los modelos grandes, el entorno Python ni las capturas locales.** El programa `outputs/preparar_modelos.py` descarga y prepara los modelos; las instrucciones están en la guía de instalación. Requiere Internet para la preparación inicial; el análisis de imagen se hace localmente.
-
-No copies el entorno `work/venv` de un sistema a otro: créalo de nuevo. No hace falta subir modelos de más de 100 MB para compartir este código. Las licencias de las bibliotecas y modelos de terceros siguen siendo aplicables; consulta sus proyectos originales antes de redistribuirlos o usarlos comercialmente.
-
-### Zoom en la cámara
-
-Usa **+ / −** y haz clic en el objeto para centrar la ampliación (1×–4×). **Vista completa** o `0` recuperan el encuadre. El zoom también aporta un recorte al detector, conservando la geometría original para el borde y el conteo. Los objetos ambiguos se muestran en amarillo como «objeto por identificar» y no se cuentan como separados. Consulta [Zoom e inspección](docs/USO.md#zoom-e-inspección-de-objetos).
-
-El botón **IA** o la tecla `i` activa superresolución local ×2 en la vista ampliada. Los modelos de detección y el conteo conservan la imagen original. Preparación opcional: `work/venv/bin/python outputs/preparar_modelos.py --solo-superres`. [Uso y límites de la mejora IA](docs/USO.md#mejora-de-resolución-con-ia).
+- **Solo Mac** (la cámara se lee con AVFoundation, de Apple). Probado en un Mac con chip M5.
+- Cámara externa: Samsung con Camo (o LifeCam). La cámara integrada del Mac no se usa nunca.
+- Los **modelos entrenados** (`outputs/models/*.pt`) no están en GitHub porque pesan mucho. Los propios (`residuos-propio.pt`, `robot-propio.pt`) hay que pedirlos al autor; los generales se descargan con `outputs/preparar_modelos.py`.
+- Pruebas automáticas: `work/venv/bin/python -m unittest discover -s tests` (149 pruebas).
