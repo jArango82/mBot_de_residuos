@@ -1,0 +1,148 @@
+{
+  "name": "mBot: registrar residuos separados en Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "residuos",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "5b0d6c6e-1f7a-4a52-9a43-2c1f7d6a0a01",
+      "name": "Residuo separado",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "7c3a9e64-2d0b-4c8e-8f3e-1a2b3c4d5e6f"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ { \"Fecha\": $json.body.fecha, \"Hora\": $json.body.hora, \"Residuo\": $json.body.residuo, \"Hoja\": $json.body.hoja, \"Grupo\": $json.body.grupo, \"Confianza\": $json.body.confianza, \"Sesión\": $json.body.sesion, \"Total en la sesión\": $json.body.total_sesion } }}",
+        "options": {}
+      },
+      "id": "5b0d6c6e-1f7a-4a52-9a43-2c1f7d6a0a02",
+      "name": "Fila para la hoja",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "5b0d6c6e-1f7a-4a52-9a43-2c1f7d6a0a03",
+      "name": "Añadir fila en Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        480,
+        0
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, mensaje: '✅ Apuntado en Google Sheets: ' + $('Fila para la hoja').item.json.Residuo + ' → hoja ' + $('Fila para la hoja').item.json.Hoja, hora: $('Fila para la hoja').item.json.Hora, total: $('Fila para la hoja').item.json['Total en la sesión'] } }}",
+        "options": {}
+      },
+      "id": "5b0d6c6e-1f7a-4a52-9a43-2c1f7d6a0a04",
+      "name": "Responder al panel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        760,
+        -90
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, mensaje: '⚠️ n8n no pudo apuntarlo en Google Sheets: ' + (($json.error && ($json.error.message || $json.error)) || 'error desconocido') } }}",
+        "options": {}
+      },
+      "id": "5b0d6c6e-1f7a-4a52-9a43-2c1f7d6a0a05",
+      "name": "Avisar del fallo al panel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        760,
+        110
+      ]
+    }
+  ],
+  "connections": {
+    "Residuo separado": {
+      "main": [
+        [
+          {
+            "node": "Fila para la hoja",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fila para la hoja": {
+      "main": [
+        [
+          {
+            "node": "Añadir fila en Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Añadir fila en Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Responder al panel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar del fallo al panel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "pinData": {}
+}

@@ -417,10 +417,20 @@ class GoToWaste:
                 self.seen_waste = waste.copy()
             front = center @ ug + robot_half
             if not fresh and front >= middle @ ug + self.waste_half:
-                # Tapado por el robot, pero el morro ya llegó al centro de la hoja: el residuo está encima.
-                self.phase, self.backs = 'back', 0
-                self.message = f'{label} en la hoja {sheet}: retrocediendo'
-                return self.step('s', .35, now, center)
+                # Tapado por el robot, pero el morro ya llegó al centro de la hoja: el residuo debería estar encima.
+                # Solo si la última vez que se vio ya iba pegado a la hoja (2/11: el blanqueador resbaló a un lado,
+                # se dio por dejado sin estarlo y el robot acabó dando vueltas junto a la cinta).
+                last = self.seen_waste
+                near = last is not None and cv2.pointPolygonTest(np.float32(goal), (float(last[0]), float(last[1])), True) > \
+                    -(2 * self.waste_half + 10)
+                if near:
+                    self.phase, self.backs = 'back', 0
+                    self.message = f'{label} en la hoja {sheet}: retrocediendo'
+                    return self.step('s', .35, now, center)
+                # Se retrocede un paso para volver a verlo, sin darlo por dejado.
+                self.phase, self.staged = 'go', None
+                self.message = f'Automatico: buscando {label} (se desvio)'
+                return self.step('s', .3, now, center)
             # El robot se dirige a la hoja con el residuo delante (así el residuo va hacia la hoja aunque el robot no
             # esté justo detrás). Si el residuo resbala y ya no va delante, se vuelve a colocar detrás.
             course = middle - center

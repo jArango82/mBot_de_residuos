@@ -18,6 +18,7 @@ from vision_zoom import InspectionZoom, detail_sample
 from camaras_mac import camera_arg, describe, size_arg
 from vision_superres import SuperResolution
 from conteo_residuos import EventStore, SeparationCounter
+from aviso_n8n import N8nSender, DEFAULT_URL as N8N_URL
 from navegacion import GoToWaste, covered
 import vision_hojas
 from vision_orugas import track_axis, plane_axis
@@ -98,6 +99,9 @@ def main():
     parser.add_argument('--zoom', type=float, default=1., help='Zoom digital inicial entre 1 y 4')
     parser.add_argument('--dashboard-port', type=int, default=8765)
     parser.add_argument('--sin-dashboard', action='store_true')
+    parser.add_argument('--n8n', default=None, metavar='URL',
+                        help='Webhook de n8n que apunta cada residuo separado (por defecto el de n8n en este Mac)')
+    parser.add_argument('--sin-n8n', action='store_true', help='No enviar los residuos separados a n8n')
     parser.add_argument('--conectar', action='store_true')
     parser.add_argument('--solo-vision', action='store_true',help='Detectar residuos sin conectar el robot')
     parser.add_argument('--modelo',default=str(Path(__file__).resolve().parent/'models/residuos-world-small.pt'))
@@ -134,6 +138,10 @@ def main():
         diagnostic.mkdir(parents=True, exist_ok=True)
     store = EventStore()
     counter = SeparationCounter(store)
+    # Cada residuo separado, también a n8n (hoja de cálculo). Sin n8n abierto se reintenta solo; nunca frena al robot.
+    n8n = None if args.sin_n8n else N8nSender(args.n8n or N8N_URL)
+    if n8n is not None:
+        store.listeners.append(n8n.send)
     server = None
     video = LiveVideo()
     if not args.sin_dashboard:
@@ -146,6 +154,8 @@ def main():
         camera = Camera(args.camara, args.resolucion)
     except Exception:
         store.publish({'session':counter.session,'updated':time.time(),'running':False})
+        if n8n is not None:
+            n8n.close()
         if server:
             server.shutdown()
             server.server_close()
@@ -503,7 +513,9 @@ def main():
                     'frame_size':[int(frame.shape[1]),int(frame.shape[0])],
                     'unclassified_objects':[o for o in objects if not o['countable']],
                     'outside':bool(outside),'camera_age':float(now-stamp),'sorting':sorted(sheets.known),'connected':bool(guard.connected),'border_status':border_status,
-                    'bluetooth':guard.status,'waste_status':waste.status,'paper_status':paper.status})
+                    'bluetooth':guard.status,'waste_status':waste.status,'paper_status':paper.status,
+                    'n8n_status':n8n.status if n8n is not None else 'n8n apagado',
+                    'n8n':n8n.summary() if n8n is not None else None})
             for i,row in enumerate(rows):
                 color = (80,240,80) if i == 0 and decision.safe else ((80,80,255) if i == 0 else (230,230,230))
                 if args.solo_vision and i == 0:
@@ -535,6 +547,7 @@ def main():
                     'line_visible':bool(visible),'robot_box':box,'safe':decision.safe,
                     'message':decision.reason,'bluetooth':guard.status,'armed':armed,
                     'waste_status':waste.status,'paper_status':paper.status,
+                    'n8n_status':n8n.status if n8n is not None else 'n8n apagado',
                     'detector_age':now-waste_stamp,
                     'zoom':zoom.level,'zoom_region':zoom.region(frame.shape),
                     'superres_enabled':enhancer.enabled,'superres_status':enhancer.status,
@@ -628,6 +641,8 @@ def main():
         camera.close()
         cv2.destroyAllWindows()
         store.publish({'session':counter.session,'updated':time.time(),'running':False})
+        if n8n is not None:
+            n8n.close()
         if server:
             server.shutdown()
             server.server_close()

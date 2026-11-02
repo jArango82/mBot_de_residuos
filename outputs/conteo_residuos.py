@@ -17,6 +17,7 @@ class EventStore:
     def __init__(self, path=DEFAULT_DB):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.listeners = []   # funciones llamadas con cada residuo nuevo (evento, total de la sesión), p. ej. n8n
         with self.connect() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, started REAL NOT NULL);
@@ -39,10 +40,20 @@ class EventStore:
             db.execute('INSERT INTO sessions VALUES(?,?)', (sid, time.time()))
         return sid
     def record(self, sid, track, category, confidence):
+        at = time.time()
         with self.connect() as db:
             cur = db.execute('INSERT OR IGNORE INTO events VALUES(?,?,?,?,?)',
-                            (sid,track,category,time.time(),float(confidence)))
-            return cur.rowcount == 1
+                            (sid,track,category,at,float(confidence)))
+            new = cur.rowcount == 1
+            total = db.execute('SELECT COUNT(*) FROM events WHERE session=?', (sid,)).fetchone()[0] if new else 0
+        if new:
+            event = {'session':sid,'track':track,'category':category,'at':at,'confidence':float(confidence)}
+            for listener in self.listeners:
+                try:
+                    listener(event, total)
+                except Exception:
+                    pass   # un aviso que falla no puede impedir el conteo
+        return new
     def publish(self, state):
         with self.connect() as db:
             db.execute('INSERT OR REPLACE INTO live VALUES(1,?)', (json.dumps(state,allow_nan=False),))
